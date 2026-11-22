@@ -360,3 +360,32 @@ The field shortcut still stopped on second four with the warning and keyboard
 focus intact; returning to Title and selecting Continue loaded that exact
 clock, health, and injuries. The separate keyboard startup check covers world
 and site choices and an independent restart.
+
+### Shared company assessment during redraw
+
+Profiling the whole redraw by section identified Economy as the largest cost,
+ahead of the shared readouts and the map. Within Economy, the summary and tab
+badge each calculated company credibility, and the Company panel calculated
+it a third time. Each assessment includes the physical property assessment;
+the Exchange quotes and charts took only 5–6 ms in this fixture.
+
+The three displays now share one assessment per Economy redraw. It still
+updates the property record, and every new redraw computes from the current
+physical and accounting state. No panel was deferred, prices and orders were
+not changed, and no result is reused across redraws or runs. The optional
+per-section timings are enabled by the existing field-keyboard benchmark;
+the nested Economy timings are part of the Economy total, not additional time.
+
+| Synchronous Chromium redraw | Before | After |
+| --- | ---: | ---: |
+| Completed: Economy | 2.700 s | 1.268 s |
+| Completed: full redraw | 6.411 s | 5.019 s |
+| Threat interruption: Economy | 2.727 s | 1.242 s |
+| Threat interruption: full redraw | 6.649 s | 5.183 s |
+
+The paired fixture measured about 1.4–1.5 s less redraw work (22%). This is
+the render portion, not the full shortcut time, and excludes asynchronous
+painting. The shortcut still checks and stops on the same threat second, shows
+the warning, and preserves map focus and Continue behavior. A focused Company
+check compares the summary, badge and panel with the current assessment before
+and after a real operating-state change.

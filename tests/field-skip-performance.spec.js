@@ -138,7 +138,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
       return d.wildernessBeastSnapshot();
     }, { saved: fieldStart, attack });
     await viewport.focus();
-    await page.evaluate(() => window.helixHeresyDebug.resetSimulationPerformance());
+    await page.evaluate(() => window.helixHeresyDebug.resetSimulationPerformance({ profileRenderSections: true }));
     await page.keyboard.press('Period');
     const result = await page.evaluate(() => {
       const d = window.helixHeresyDebug, p = d.simulationPerformanceSnapshot();
@@ -158,7 +158,9 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     saves: p.save.calls, saveMs: Math.round(p.save.totalMs), renderMs: Math.round(p.render.totalMs),
     startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
-    otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs)
+    otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs),
+    sectionsMs: Object.fromEntries(Object.entries(p.renderSections).sort((a, b) => b[1].totalMs - a[1].totalMs)
+      .map(([id, sample]) => [id, Math.round(sample.totalMs)]))
   }));
   console.log(`Field Next Event keyboard timings (completed, interrupted): ${JSON.stringify(costs)}`);
   expect(complete.advanced).toBe(9.375);
@@ -179,5 +181,31 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(continued.health).toBe(interrupted.after.health);
     expect(continued.injuries).toEqual(interrupted.after.injuries);
   }
+  expect(errors).toEqual([]);
+});
+
+test('Economy shows one consistent, fresh credibility assessment after a company change', async ({ page }) => {
+  test.setTimeout(120000);
+  const errors = [];
+  page.on('pageerror', err => errors.push(err.message));
+  await startLifecycleRun(page, 'company-redraw-assessment');
+  await page.locator('[data-workspace-tab="economy"]').click();
+  await page.locator('[data-economy-menu-tab="company"]').click();
+
+  async function expectVisibleAssessment() {
+    const { assessment } = await page.evaluate(() => window.helixHeresyDebug.companySnapshot());
+    await expect(page.locator('#economySummary')).toContainText(`${assessment.band.label} cover`);
+    await expect(page.locator('#economyCompanyBadge')).toHaveText(String(assessment.exceptions.length + 1));
+    await expect(page.locator(`[data-company-credibility="${assessment.band.id}"]`)).toBeVisible();
+    await expect(page.locator('[data-company-exception]')).toHaveCount(assessment.exceptions.length);
+    const commercial = assessment.dimensions.find(dimension => dimension.id === 'commercial');
+    await expect(page.locator('[data-company-credibility-dimension="commercial"]')).toHaveAttribute('title', commercial.reasons.join('\n'));
+    return commercial;
+  }
+
+  const before = await expectVisibleAssessment();
+  await page.getByLabel('Company operating state').selectOption('open');
+  const after = await expectVisibleAssessment();
+  expect(after.reasons).not.toEqual(before.reasons);
   expect(errors).toEqual([]);
 });

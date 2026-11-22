@@ -5053,6 +5053,7 @@
   let lastSimulationChanges = null;
   const simulationPerformance = {
     systems: {},
+    renderSections: null,
     render: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     startupUi: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
     mapSurface: { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 },
@@ -16684,8 +16685,9 @@
       },
       simulationPerformanceSnapshot: () => buildSimulationPerformanceSnapshot(),
       groupPopulationBenchmark: (count = 250) => GroupBehavior.benchmarkPopulation(count),
-      resetSimulationPerformance: () => {
+      resetSimulationPerformance: ({ profileRenderSections = false } = {}) => {
         simulationPerformance.systems = {};
+        simulationPerformance.renderSections = profileRenderSections ? {} : null;
         for (const key of ["render", "startupUi", "mapSurface", "mapScene", "canvasDraw", "save"]) {
           simulationPerformance[key] = { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
         }
@@ -54045,49 +54047,80 @@
     return AccessibilityUI.preserveFocus(document, () => renderAccessibleContent(options));
   }
 
+  function renderSectionTimer(prefix = "") {
+    const sections = simulationPerformance.renderSections;
+    if (!sections) return () => {};
+    let checkpoint = performance.now();
+    return (id) => {
+      const now = performance.now();
+      recordPerformanceSample(sections[`${prefix}${id}`] ||= {}, now - checkpoint);
+      checkpoint = now;
+    };
+  }
+
   function renderAccessibleContent(options = {}) {
+    const section = renderSectionTimer();
     syncNotificationSession();
     if (state?.started && activeRunRecord && RunLifecycle.phase(state) !== "active" && !startupOverlayOpen) showRunOutcome(currentRunRecord());
     const scrollSnapshot = options.preserveWorkspaceScroll ? captureWorkspaceScroll() : null;
     syncSelectionState();
+    section("renderPreparation");
     renderLiveReadouts();
+    section("liveReadouts");
     dom.sequenceInput.value = state.currentGenome;
     dom.sequenceStatus.textContent = `${state.currentGenome.length}/${GENOME_LENGTH} base pairs`;
     dom.journalModeReadout.textContent = journalModeName(state.journalMode);
     renderHelix();
     renderMutationBench();
     renderPredictions();
+    section("genome");
     renderSlimes();
     renderUnknownCreatureRecords();
     renderCorpses();
     renderLineageRecords();
     renderContainers();
     renderJobs();
+    section("specimensAndContainers");
     renderTests();
     renderBreeding();
     renderPolicies();
+    section("testsBreedingAndPolicies");
     renderRooms();
+    section("roomsAndMap");
     renderContextCommandMenu();
+    section("contextCommands");
     renderInventory();
+    section("inventory");
     renderEconomy();
+    section("economy");
     renderScientist();
+    section("scientist");
     renderTasks();
+    section("tasks");
     renderProduction();
+    section("production");
     renderResearch();
+    section("research");
     renderSiteVisits();
+    section("visits");
     renderInvestigativeEvidence();
+    section("evidence");
     renderJournal();
+    section("journal");
     renderEvents();
+    section("messages");
     renderMapOverlayHud();
     renderKnownEditor();
     renderSlimeAiDebugPanel();
     renderSimulationPerformance();
+    section("mapHudAndDebug");
     syncWorkspaceShell();
     refreshActionControls();
     explainDisabledButtons();
     restoreWorkspaceScroll(scrollSnapshot);
     AccessibilityUI.linkTabs(document);
     syncActionAvailability();
+    section("workspaceAndControls");
   }
 
   function renderLiveReadouts() {
@@ -63037,6 +63070,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       }])),
       systems: Object.fromEntries(SIMULATION_SYSTEM_DEFS.map((definition) => [definition.id, performanceBucketSnapshot(simulationPerformance.systems[definition.id])])),
       render: performanceBucketSnapshot(simulationPerformance.render),
+      renderSections: Object.fromEntries(Object.entries(simulationPerformance.renderSections || {}).map(([id, bucket]) => [id, performanceBucketSnapshot(bucket)])),
       startupUi: performanceBucketSnapshot(simulationPerformance.startupUi),
       mapSurface: performanceBucketSnapshot(simulationPerformance.mapSurface),
       mapScene: performanceBucketSnapshot(simulationPerformance.mapScene),
@@ -68919,18 +68953,16 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     dom.economyCompanyList.append(section);
   }
 
-  function renderCompany() {
+  function renderCompany(company, assessment) {
     if (!dom.economyCompanyList) return;
     renderLocalSiteContext();
     renderSurfaceConditions();
-    const company = ensureCompany();
     if (!company.enabled) {
       const section = storesSectionEl("No Registered Front", "This starting scenario has no public company identity or above-ground business operation.", { economyCategory: "company" });
       section.append(emptyText("Company records and cover credibility are unavailable for this site."));
       dom.economyCompanyList.append(section);
       return;
     }
-    const assessment = companyCredibilityAssessment(company);
     const operating = COMPANY_OPERATING_STATE_DEFS[company.operatingState];
     const period = activeCompanyPeriod(company);
     const periodState = companyReportingPeriodState(period);
@@ -71005,20 +71037,24 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
 
   function renderEconomy() {
+    const section = renderSectionTimer("economy:");
     const economy = ensureEconomy();
     ensureLocalCovertMarket();
     const openDeals = blackMarketOpenDeals();
     const activeTrade = activeBlackMarketTradeTask();
+    const company = ensureCompany();
+    // All three views describe the same physical and accounting state. The
+    // assessment still updates the property record once on each redraw.
+    const assessment = companyCredibilityAssessment(company);
     if (dom.economySummary) {
-      const company = ensureCompany();
-      const companyLabel = company.enabled ? `${company.legalName}; ${companyCredibilityAssessment(company).band.label} cover` : "No registered front";
+      const companyLabel = company.enabled ? `${company.legalName}; ${assessment.band.label} cover` : "No registered front";
       dom.economySummary.textContent = `${formatMoney(economy.money)}; ${companyLabel}; ${economy.commodityOrders.filter((order) => order.status === "open").length} standing legal orders; ${openDeals.filter((deal) => deal.status === "open").length} open deals/offers`;
       dom.economySummary.title = "The lawful exchange uses saved supply and demand, all-in quotes, physical freight, and reliable settlement. Black-market contacts remain a separate channel.";
     }
     clearEconomyMenuLists();
     renderEconomyMenuTabs({
       overview: economy.contacts.length + openDeals.length,
-      company: ensureCompany().enabled ? companyCredibilityAssessment().exceptions.length + 1 : 0,
+      company: company.enabled ? assessment.exceptions.length + 1 : 0,
       exchange: COMMODITY_MARKET_LISTING_DEFS.length,
       orders: economy.commodityOrders.filter((order) => ["open", "executing"].includes(order.status)).length,
       freight: economy.commodityConsignments.filter((consignment) => !["received", "sold", "failed"].includes(consignment.status)).length,
@@ -71032,22 +71068,29 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       contracts: blackMarketActiveContracts().length,
       ledger: economy.ledger.length
     });
+    section("preparation");
     renderEconomyOverview(economy, openDeals, activeTrade);
-    renderCompany();
+    section("overview");
+    renderCompany(company, assessment);
+    section("company");
     renderCommodityExchange(economy);
+    section("exchange");
     renderCommodityOrders(economy);
     renderCommodityFreight(economy);
     renderLegalLedger(economy);
     renderEconomyContacts(economy, openDeals);
+    section("freightOrdersAndContacts");
     renderLocalServices();
     renderCivicAssayMandate();
     renderConfidentialServices();
     renderSurfaceWorkers();
     renderLaboratoryAssistant();
     if (dom.economyFacilitiesList) dom.economyFacilitiesList.append(renderLeasedAnnex());
+    section("servicesAndFacilities");
     renderEconomyDeals(openDeals);
     renderEconomyContracts(economy);
     renderEconomyLedger(economy);
+    section("dealsContractsAndLedger");
   }
 
   function renderScientist() {
