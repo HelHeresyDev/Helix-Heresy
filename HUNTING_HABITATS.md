@@ -257,3 +257,42 @@ A mid-trip reload reproduced the eventual fish, remains, and Bell state;
 forged duplicate custody was rejected. The Bell still drew down its starting
 fat and ate surrounding prey, so this does not establish a self-sustaining
 school, viability through a year, or viability with competing Bells.
+
+### One game year with all four resident Bells
+
+The `source-small` replay (`beast-habitat-source:3d15c2f8`,
+`habitat:138:waterColumn`) ran all four original residents on the same
+120-day calendar, with identical starting bodies, fish pools, and weather.
+The control suppressed only shoaling before the first departure. Both
+branches closed the region's edges, so this measures local food supply under
+competition, not survival with migration. Both branches matched through day
+30 before departures and passed save validation and fish-count reconciliation
+at each month end.
+
+Each Bell started with 8,000 kg of fat. The shortfall dates mark unmet food
+needs, not merely failed hunts. All losses in the table were starvation.
+
+| Original Bell (ID suffix) | Shortfall day, no shoal | Shortfall day, shoal | Death day, no shoal | Death day, shoal |
+| --- | ---: | ---: | ---: | ---: |
+| `0:males` (school home) | 43.72 | 63.75 | 65.19 | 84.76 |
+| `1:females` | 26.73 | 26.73 | 47.95 | 47.88 |
+| `2:males` | 26.93 | 26.93 | 48.99 | 48.84 |
+| `3:females` | 27.78 | 27.78 | 49.82 | 50.79 |
+
+The school-home Bell was the only one alive on day 60 in either branch,
+with 700.20 kg of fat with shoaling and 0 kg without it. None survived to
+day 120. The school started with 603 adults and first had no adults on day
+24 in both branches. All 301 migrants arrived during the second month.
+Both branches hatched 118 young, but neither had any live fish in the school
+at day 60, 90, or 120, and no adults were observed on daily checks from day 60
+onward. Second-month school tissue eaten was 4,519.91 kg with shoaling versus
+5.88 kg without it; neither branch ate more from the school after day 60.
+
+Shoaling bought the school-home Bell about twenty extra days, but did not
+sustain any original through the first year or rebuild the school. This
+concludes the local pilot; it does not change the game's feeding rules,
+establish whole-world viability, or close #3.38-D.
+
+```sh
+node --test --test-isolation=none --test-name-pattern='one complete offshore year' tests/offshore-bell-school.unit.test.js
+```

@@ -128,6 +128,12 @@ separately covers one new-world Bell's first month using the same total
 fish and starting position as a dispersed control. It draws down finite
 adult prey and original reserves. It does not revise the archived seasonal
 result or certify long-term supply.
+The [subsequent 120-day resident replay](HUNTING_HABITATS.md#one-game-year-with-all-four-resident-bells)
+uses the newer school source and all four original Bells in that one region.
+Seasonal arrivals delayed the school-home Bell's death by about twenty days,
+but all four starved and the school did not recover. The replay closes the
+local pilot, not the integrated viability requirement; migration was excluded
+from both branches.
 
 Execution took 3,647.034 seconds (60.8 minutes); the expanded final account
 was 363 MB. Positioned wildlife carcass sites rose from 22,640 at day 30 to

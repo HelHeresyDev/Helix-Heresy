@@ -19,16 +19,29 @@ function fixture() {
 }
 const school = r => r.wildlife.pools.find(p => p.habitatPatch === PATCH);
 const originalFields = ['originalCount', 'originalMassKg', 'capacityCount'];
-const prepare = (source, runId, { editRegion, withBell = true } = {}) => {
+const prepare = (source, runId, { editRegion, withBell = true, allResidents = false } = {}) => {
   const { world, regionId, groupId } = fixture();
   const r = structuredClone(source.regions.find(r => r.id === regionId));
-  r.edges = []; // Isolate the original habitat and body.
+  r.edges = []; // Isolate the original habitat from cross-region movement.
   editRegion?.(r);
-  const binding = { worldId: world.id, runId }, groups = withBell ? [source.groups.find(g => g.id === groupId)] : [];
+  const binding = { worldId: world.id, runId };
+  const groups = allResidents ? source.groups.filter(g => g.regionId === regionId)
+    : withBell ? [source.groups.find(g => g.id === groupId)] : [];
   return { binding, run: P.createDiagnostic({ ...source, groups, regions: [r] }, binding) };
 };
 const advance = (s, day) => assert.ok(P.advance(s, day * DAY, true, true));
 const adults = p => p.cohorts.filter(c => c.massKg === W.profile(p).adultKg).reduce((n, c) => n + c.count, 0);
+function advanceWithoutShoaling(run, day) {
+  const plan = W.plan, region = run.regions[0];
+  try {
+    // Suppress only the unexecuted intent, before the first departure.
+    W.plan = (r, month, at) => {
+      plan(r, month, at);
+      if (r === region && r.wildlife.shoal?.departed === 0) delete r.wildlife.shoal;
+    };
+    advance(run, day);
+  } finally { W.plan = plan; }
+}
 const balanced = s => {
   const summary = W.summary(s);
   assert.equal(summary.living + summary.dead + summary.hunted, summary.original + summary.born);
@@ -113,16 +126,7 @@ test('cold-upwelling shoals pay for travel, preserve custody on reload and feed 
   const first = run.calendar.monthDays[0], end = first + run.calendar.monthDays[1];
   for (let day = 1; day <= first; day++) {
     advance(run, day);
-    // Same school, weather, fish, and Bell. Only suppress the initial intent
-    // on this diagnostic branch, while no fish have yet left their pools.
-    const plan = W.plan;
-    try {
-      W.plan = (here, month, at) => {
-        plan(here, month, at);
-        if (here === left && here.wildlife.shoal?.departed === 0) delete here.wildlife.shoal;
-      };
-      advance(control, day);
-    } finally { W.plan = plan; }
+    advanceWithoutShoaling(control, day);
   }
   const { shoal: s } = r.wildlife, donor = r.wildlife.pools.find(p => p.id === s.donorId);
   assert.deepEqual(run.groups, control.groups);
@@ -180,6 +184,75 @@ test('cold-upwelling shoals pay for travel, preserve custody on reload and feed 
     eatenKg: r.foraging.receipts.eatenKg - oldEaten, controlEatenKg: left.foraging.receipts.eatenKg - oldEaten,
     fatKg: bell.stores.fatKg, controlFatKg: without.stores.fatKg, health: bell.health, controlHealth: without.health,
     firstShortfallDay: bell.firstScarcity?.at / DAY, controlFirstShortfallDay: without.firstScarcity?.at / DAY }));
+});
+
+test('one complete offshore year measures shoaling with all four original resident Bells', t => {
+  const { withSchool, groupId } = fixture();
+  const { run, binding } = prepare(withSchool, 'full-offshore-year', { allResidents: true });
+  // Use the same binding, original fish, residents, and weather in both runs.
+  const control = P.normalize(run, binding);
+  assert.ok(control);
+  const size = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
+  const originals = run.groups.flatMap(g => {
+    assert.equal(g.speciesId, BELL);
+    return g.cohorts.map(c => {
+      assert.equal(size(c), 1);
+      return { id: c.originId, role: c.role, foodResource: g.resources.foodKg, startingFatKg: c.stores.fatKg, atSchool: g.id === groupId };
+    });
+  });
+  assert.equal(originals.length, 4);
+  assert.equal(new Set(originals.map(o => o.id)).size, originals.length);
+  assert.equal(originals.filter(o => o.atSchool).length, 1);
+  const months = run.calendar.monthDays.map((_, i, days) => days.slice(0, i + 1).reduce((a, b) => a + b));
+  assert.deepEqual(months, [30, 60, 90, 120]);
+  const snapshot = (s, day) => {
+    const r = s.regions[0], p = school(r);
+    return { day, adults: adults(p), young: W.total(p) - adults(p), liveKg: W.mass(p), born: p.bornCount,
+      schoolEatenKg: p.carcass.consumedKg, totalEatenKg: r.foraging.receipts.eatenKg };
+  };
+  const schoolHistory = { shoaling: [snapshot(run, 0)], control: [snapshot(control, 0)] };
+  const peakAdultsAfterSeason = { shoaling: 0, control: 0 };
+  const firstEmptyDay = { shoaling: null, control: null };
+  const middleFat = {};
+  for (let day = 1; day <= months.at(-1); day++) {
+    advance(run, day); advanceWithoutShoaling(control, day);
+    const r = run.regions[0], left = control.regions[0];
+    if (day <= months[0]) {
+      assert.deepEqual(run.groups, control.groups);
+      assert.deepEqual(r.wildlife.pools, left.wildlife.pools);
+      assert.deepEqual(r.foraging, left.foraging);
+    }
+    if (day === months[1]) for (const [key, s] of [['shoaling', run], ['control', control]])
+      middleFat[key] = Object.fromEntries(s.groups.flatMap(g => g.cohorts.filter(size).map(c => [c.originId, c.stores.fatKg])));
+    for (const [key, s] of [['shoaling', run], ['control', control]]) {
+      const count = adults(school(s.regions[0]));
+      if (!count) firstEmptyDay[key] ??= day;
+      if (day >= months[1]) peakAdultsAfterSeason[key] = Math.max(count, peakAdultsAfterSeason[key]);
+      if (months.includes(day)) {
+        balanced(s);
+        schoolHistory[key].push(snapshot(s, day));
+      }
+    }
+  }
+  const individualOutcomes = (s, key) => originals.map(o => {
+    const c = s.groups.flatMap(g => g.cohorts).find(c => c.originId === o.id);
+    const loss = s.losses.find(l => l.originId === o.id);
+    const failure = c?.firstScarcity ?? loss?.context?.firstFailure;
+    assert.equal(size(c || { ranges: [] }) + Number(Boolean(loss)), 1, o.id);
+    if (failure) assert.equal(failure.inventory.resource, o.foodResource);
+    return { id: o.id, role: o.role, atSchool: o.atSchool, startingFatKg: o.startingFatKg,
+      firstFoodShortfallDay: failure ? failure.at / DAY : null,
+      fatKgAtDay60: middleFat[key][o.id] ?? null, fatKgAtDay120: loss ? null : c.stores.fatKg,
+      loss: loss ? { day: loss.at / DAY, cause: loss.cause } : null };
+  });
+  const shoal = run.regions[0].wildlife.shoal;
+  assert.ok(shoal.arrived > 0 && shoal.departed <= shoal.plan.budget);
+  assert.equal(shoal.transit.length, 0);
+  assert.equal(control.regions[0].wildlife.shoal, undefined);
+  const branches = { shoaling: individualOutcomes(run, 'shoaling'), control: individualOutcomes(control, 'control') };
+  t.diagnostic(JSON.stringify({ source: run.sourceId, weatherDays: months,
+    shoal: { departed: shoal.departed, arrived: shoal.arrived, returned: shoal.returned, lost: shoal.lost },
+    firstEmptyDay, peakAdultsAfterSeason, schoolHistory, branches }));
 });
 
 test('a distant hotspot cannot refill depleted offshore adults', () => {
