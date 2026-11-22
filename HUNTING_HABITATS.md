@@ -127,3 +127,50 @@ the Wyrms still searched but caught and ate nothing. The nearby school can
 be depleted: the pair in this isolated replay was already losing health by
 day 15. This is not a seasonal viability result, Brine Cathedral
 opposition, or detailed local-map hunting.
+
+## Abyssal Bell search pacing
+
+Abyssal Bells still plan once per game-calendar month, with the same
+six-hours-per-day equivalent search allowance and the same monthly handling,
+eating, and total activity ceilings. Only a day's share is released at a time.
+They can carry up to one day's unused search into the next day; they cannot
+bank an entire idle stretch or borrow from future days. Search finishes at
+the release boundary and an otherwise eligible hungry Bell can try again
+after the refill. Elapsed movement, rest, catch, finite prey custody,
+handling, and ingestion are unchanged. No other species uses this rule.
+
+A saved legacy plan keeps its search already spent and finishes any pending
+action at the archived time. When starting another search it paces the
+remaining allowance over the remaining month, releasing no more than the
+ordinary daily share. The saved pacing state and partial actions survive
+normalization; reloading does not give a second allowance.
+
+The retained day-40 checkpoint of source `43996615` was replayed through
+day 52 with the prior and paced kernels. Both started with the same original
+Bell (`natural-group:beast-population:abyssal-bell:01:2:males`), 111 spent
+search hours, and the same all-species account and prey inventories. Both
+end accounts normalized. No fish or search allowance was added.
+
+| Same Bell, day-40–52 replay | Unpaced | Paced |
+| --- | ---: | ---: |
+| Monthly search allowance | 180 h | 180 h |
+| Total month-to-date search at day 52 | 180 h | 152.44 h |
+| Additional search after day 50 | 0 h | 6.90 h |
+| Fish tissue eaten after day 50 | 0 kg | 477.84 kg |
+| Fish tissue eaten across the replay | 4,595.46 kg | 2,828.71 kg |
+| First food shortfall | Day 49.51 | Day 44.56 |
+| Health at day 52 | 75.1% | 51.1% |
+
+The unpaced Bell ran out of search hours by day 48. Pacing preserved a real
+later opportunity, but the later meals did not make up for the lower early
+intake in this saved-plan continuation. Neither branch met the Bell's needs
+through the window. This demonstrates scheduling behavior and its tradeoff,
+not a survival improvement or seasonal acceptance. The two branches do not
+establish how a Bell paced from the beginning of its first month would fare.
+
+```sh
+node scripts/replay-bell-search-pacing.js \
+  .replay-checkpoints/current-source-small-VaeaU47X/day-40.json 52
+git show 8571f30:beast-foraging.js | node scripts/replay-bell-search-pacing.js \
+  .replay-checkpoints/current-source-small-VaeaU47X/day-40.json 52 --baseline-stdin
+```

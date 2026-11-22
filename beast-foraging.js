@@ -14,6 +14,7 @@
 })(globalThis, function (Life, Data, Bodies, Journeys, Lantern, Tissues, Approach, Carcasses) {
   'use strict';
   const DAY = 86400, HOUR = 3600, EPS = 1e-8, copy = x => JSON.parse(JSON.stringify(x));
+  const PACED_SEARCH = 'beast:abyssal-bell', SEARCH_RATE = 6 * HOUR / DAY, BANK_DAYS = 2;
   const count = c => c.ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
   const finite = n => Number.isFinite(n) && n >= 0;
   const integer = n => Number.isSafeInteger(n) && n >= 0;
@@ -29,6 +30,7 @@
     f.plan = { monthIndex: month.index, plannedAt: at, end: month.end,
       limits: { search: days * 6 * HOUR, eating: days * 2 * HOUR, handling: days * HOUR, active: days * 8 * HOUR },
       used: { search: 0, eating: 0, handling: 0, rest: 0 } };
+    if (c.speciesId === PACED_SEARCH && month.end > at + EPS) paceSearch(f.plan, at);
     f.nextAt = Math.min(f.nextAt, at + 1e-6);
   }
   function row(r, meal) {
@@ -117,6 +119,26 @@
   }
   const usedActive = f => f.plan.used.search + f.plan.used.eating + f.plan.used.handling;
   const room = (f, kind) => Math.max(0, Math.min(f.plan.limits[kind] - f.plan.used[kind], f.plan.limits.active - usedActive(f)));
+  const paceRate = (plan, p) => Math.min(SEARCH_RATE, (plan.limits.search - p.spentAtOpen) / (plan.end - p.openedAt));
+  const refillAt = (plan, p, window) => Math.min(plan.end, p.openedAt + (window + 1) * DAY);
+  function paceSearch(plan, at) {
+    // A legacy plan adopts pacing after its current action finishes. Keep
+    // its spent hours and spread only the remaining allowance over the
+    // remaining calendar time. New plans start on the ordinary monthly clock.
+    const used = plan.used.search;
+    const p = plan.searchPacing ||= { openedAt: at, spentAtOpen: used, window: -1, ceiling: used };
+    const window = Math.floor(Math.max(0, at - p.openedAt) / DAY);
+    if (window > p.window) {
+      const rate = paceRate(plan, p);
+      const released = (refillAt(plan, p, window) - refillAt(plan, p, p.window)) * rate;
+      // At most today's allowance plus one day's carry, even after a long
+      // idle period. The ceiling includes search already spent this month.
+      const bank = Math.min(BANK_DAYS * DAY * rate, Math.max(0, p.ceiling - used) + released);
+      p.ceiling = Math.min(plan.limits.search, used + bank);
+      p.window = window;
+    }
+    return refillAt(plan, p, p.window);
+  }
   function capacity(c) {
     const p = Data.lifecycle[c.speciesId];
     return Math.min(c.massKg * .25, Math.max(p.foodKgDay * Math.max(2, p.foodReserveDays || 1)
@@ -386,6 +408,9 @@
     if (room(f, 'search') < 1 || room(f, 'eating') < 1 || room(f, 'handling') < 60 || f.plan.end <= at + EPS) {
       f.nextAt = f.plan.end; return;
     }
+    const refill = c.speciesId === PACED_SEARCH ? paceSearch(f.plan, at) : Infinity;
+    const activeRoom = Math.min(room(f, 'search'), f.plan.searchPacing ? f.plan.searchPacing.ceiling - f.plan.used.search : Infinity);
+    if (activeRoom < 1) { f.nextAt = refill; return; }
     if (c.regional.stamina < 100) {
       if (supported(c, g, s.rates[r.id]) && canRest(c, g, r)) { action(c, 'rest', at, Math.max(1, (300 - c.regional.stamina) / .5)); return; }
       if (c.regional.stamina < 2) { f.nextAt = Math.min(f.plan.end, at + 6 * HOUR); return; }
@@ -406,13 +431,13 @@
     const cycleActive = Math.min(300, c.regional.stamina * .5 / effortRate, manaRate > 0 ? c.regional.mana / manaRate : Infinity);
     if (cycleActive < 1) { f.nextAt = Math.min(f.plan.end, at + HOUR); return; }
     const cycleRest = supported(c, g, s.rates[r.id]) && canRest(c, g, r) ? cycleActive * effortRate / .5 : 0;
-    const activeRoom = room(f, 'search');
     // Invert the actual active/rest waveform, not its average duty fraction.
     // A clipped final interval starts ACTIVE; using the average would spend
-    // more search seconds than remain in the real monthly budget.
+    // more search seconds than remain in the released budget. End an Abyssal
+    // Bell's search by the refill boundary so bank expiry is not skipped.
     const fullCycles = Math.max(0, Math.ceil(activeRoom / cycleActive) - 1);
     const searchWindow = fullCycles * (cycleActive + cycleRest) + activeRoom - fullCycles * cycleActive;
-    const seconds = Math.min(HOUR, f.bout.until - at, searchWindow, g.windDriven ? ctx.contactTime?.(HOUR) ?? HOUR : Infinity,
+    const seconds = Math.min(HOUR, f.bout.until - at, searchWindow, refill - at, g.windDriven ? ctx.contactTime?.(HOUR) ?? HOUR : Infinity,
       cycleRest ? Infinity : cycleActive);
     const senseM = (aquatic ? Math.max(b.pressureM || 0, b.sightM || 0) : Math.max(b.sightM || 0, b.scentM || 0))
       * Math.max(0, 1 - Bodies.wounded(a, /head|eye|antenna|pressure organ/));
@@ -486,6 +511,18 @@
         || f.action.startedAt > (s.regionClocks?.[Journeys.location(g)]?.appliedAt ?? s.appliedAt) + EPS) return false;
       if (['approach', 'search', 'eating', 'handling'].includes(f.phase) && !f.action?.passive && c.contactBusyUntil !== f.nextAt) return false;
       const a = f.action;
+      if (Object.hasOwn(plan, 'searchPacing')) {
+        const p = plan.searchPacing, used = plan.used.search, tolerance = 1e-5;
+        if (c.speciesId !== PACED_SEARCH || !p || !finite(p.openedAt) || p.openedAt < plan.plannedAt
+          || p.openedAt >= plan.end || p.openedAt > s.clock + EPS || !integer(p.window)
+          || p.openedAt + p.window * DAY >= plan.end || p.openedAt + p.window * DAY > s.clock + EPS
+          || !finite(p.spentAtOpen) || p.spentAtOpen > used + tolerance || !finite(p.ceiling)
+          || used > p.ceiling + tolerance || p.ceiling > plan.limits.search + tolerance
+          || p.ceiling - used > BANK_DAYS * DAY * paceRate(plan, p) + tolerance
+          || p.ceiling > p.spentAtOpen + (refillAt(plan, p, p.window) - p.openedAt) * paceRate(plan, p) + tolerance) return false;
+        if (a?.phase === 'search' && (a.startedAt < p.openedAt || a.dueAt > refillAt(plan, p, p.window) + EPS
+          || used + activeAt(a, a.dueAt - a.startedAt) - activeAt(a, Math.max(0, f.lastAt - a.startedAt)) > p.ceiling + tolerance)) return false;
+      }
       if (a && (!finite(a.dueAt) || !(a.dueAt > a.startedAt) || a.dueAt > plan.end + EPS)) return false;
       if (a?.requiredSeconds != null && (a.phase !== 'handling' || a.requiredSeconds !== 60
         || a.dueAt - a.startedAt > a.requiredSeconds + EPS)) return false;

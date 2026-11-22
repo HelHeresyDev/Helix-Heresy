@@ -119,6 +119,10 @@ The first targeted Lantern case is traced below. Its lack of a meal was a
 physical access failure, not a demonstrated feeding bug. The remaining
 Lantern and marine records still call for per-group access and repeat
 feeding evidence, not a blanket increase in regional prey biomass.
+[Abyssal Bell search pacing](HUNTING_HABITATS.md#abyssal-bell-search-pacing)
+separately tested whether one original could still hunt late in the month.
+It restored late feeding attempts and real intake, but did not meet the
+individual's food needs in the replay window.
 
 Execution took 3,647.034 seconds (60.8 minutes); the expanded final account
 was 363 MB. Positioned wildlife carcass sites rose from 22,640 at day 30 to
