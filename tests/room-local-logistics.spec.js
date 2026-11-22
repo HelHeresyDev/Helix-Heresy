@@ -7,6 +7,7 @@ const { genomeForTraits } = require('./gene-fixtures');
 const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
+const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -53,6 +54,44 @@ async function selectResourceOverlayFocus(page, focusId) {
   await page.locator('[data-resource-overlay-focus-select="true"]').selectOption(focusId);
   await expect(page.locator('[data-overlay-menu="true"]')).toHaveCount(0);
 }
+
+test('haul preview and queue re-evaluate moved stock and a sealed source route', async ({ page }) => {
+  test.setTimeout(120000);
+  await startLifecycleRun(page, 'stocked-haul-routes');
+  await page.locator('[data-workspace-tab="foundry"]').click();
+  const synthesize = page.locator('#synthesizeBtn');
+  await expect(synthesize).toHaveAttribute('title', /10 Biomass from Storage Room/);
+
+  const original = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  const update = (sealed, withAlternate) => page.evaluate(({ saved, sealed, withAlternate }) => {
+    const d = window.helixHeresyDebug;
+    const stock = saved.physicalItemStacks.find(stack => stack.section === 'resources' && stack.key === 'biomass' && stack.roomId === 'storageRoom');
+    if (!stock) throw new Error('Expected starting Biomass in Storage Room');
+    if (withAlternate) saved.physicalItemStacks.push({ ...stock, id: 'stocked-route-alternate', quantity: 10, knownQuantity: 10 });
+    Object.assign(stock, { roomId: 'bedroom', cell: { x: 53, y: 57, z: 0 }, fixtureId: '', stockpileId: '' });
+    if (withAlternate) Object.assign(stock, { quantity: stock.quantity - 10, knownQuantity: stock.knownQuantity - 10 });
+    if (sealed) Object.assign(saved.doors['door-bedroom-main'], { state: 'closed', lockState: 'locked', sealState: 'sealed' });
+    d.importSurveyExpeditionTestState(saved);
+  }, { saved: original, sealed, withAlternate });
+
+  await update(false, false);
+  await expect(synthesize).toHaveAttribute('title', /10 Biomass from Bedroom/);
+
+  await update(true, false);
+  await expect(synthesize).toHaveAttribute('title', /no reachable stockpile can supply 10 more/);
+  await synthesize.click();
+  const blocked = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  expect(blocked.tasks.some(task => task.type === 'resourceHaul')).toBe(false);
+  expect(blocked.events.at(-1).message).toMatch(/no reachable stockpile can supply 10 more/);
+
+  await update(true, true);
+  await expect(synthesize).toHaveAttribute('title', /10 Biomass from Storage Room/);
+  await synthesize.click();
+  const queued = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  const haul = queued.tasks.find(task => task.type === 'resourceHaul');
+  expect(haul?.data.transfers).toEqual([{ key: 'biomass', amount: 10, fromRoomId: 'storageRoom', toRoomId: 'mainLab' }]);
+  expect(queued.resources.biomass).toBe(original.resources.biomass);
+});
 
 test('synthesis queues Biomass hauling before starting the synthesis task', async ({ page }) => {
   const consoleIssues = [];

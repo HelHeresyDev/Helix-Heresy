@@ -454,3 +454,28 @@ produced exactly the same serialized assessment, routes, exterior fixtures,
 and observer sightlines for the intact and opened-roof states before and after
 the optimization. The opening increased the exterior target count, and
 restoring the roof restored the exact original result.
+
+### Route only stocked haul sources
+
+The common haul planner now checks the known material quantity in each room
+before calculating a route. Empty candidates could never become transfers;
+they now consume no route searches. Stocked rooms still have to be reachable
+and are ranked by the same distance and room-name tie-break. The tooltip and
+the actual action use the same planner, and the action checks again when
+queued. No route cache or stock transfer rule changed.
+
+| Chromium field shortcut | Before | After |
+| --- | ---: | ---: |
+| Haul route checks per request | 15 | 1 |
+| Completed: time spent on haul route checks | 1.290 s | 0.063 s |
+| Completed: full redraw | 3.783 s | 2.497 s |
+| Completed: whole shortcut | 13.275 s | 11.982 s |
+| Threat interruption: time spent on haul route checks | 1.293 s | 0.063 s |
+| Threat interruption: full redraw | 3.959 s | 2.681 s |
+| Threat interruption: whole shortcut | 7.806 s | 6.473 s |
+
+The paired fixture still advanced 9.375 seconds on completion and stopped on
+second four when attacked. The warning, map focus and Continue state were
+unchanged. The separate Foundry check moves the Biomass, seals its source
+route, verifies the blocked request queues nothing, then confirms the preview
+and queue select the same reachable alternate with no stock spent at booking.

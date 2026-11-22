@@ -51627,12 +51627,15 @@
       }
       const sources = roomStockpileIds()
         .filter((roomId) => roomId !== targetRoomId)
-        .map((roomId) => ({
-          roomId,
-          amount: resourceAmountInRoom(key, roomId),
-          routeLength: roomPathDistanceMeters(roomId, targetRoomId, { ignoreDoors: true })
-        }))
-        .filter((source) => source.amount > 0 && Number.isFinite(source.routeLength))
+        .map((roomId) => ({ roomId, amount: resourceAmountInRoom(key, roomId) }))
+        .filter((source) => source.amount > 0)
+        .map((source) => {
+          const section = renderSectionTimer("haulPlanning:");
+          const routeLength = roomPathDistanceMeters(source.roomId, targetRoomId, { ignoreDoors: true });
+          section("routeSearch");
+          return { ...source, routeLength };
+        })
+        .filter((source) => Number.isFinite(source.routeLength))
         .sort((a, b) => a.routeLength - b.routeLength || roomName(a.roomId).localeCompare(roomName(b.roomId)));
       for (const source of sources) {
         const moved = Math.min(source.amount, remaining);

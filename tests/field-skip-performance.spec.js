@@ -155,6 +155,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(result.p.mapSurface.calls).toBe(1);
     expect(result.p.renderSections['actionControls:fullRedraw']?.calls).toBe(1);
     expect(result.p.renderSections['actionControls:liveReadouts']).toBeUndefined();
+    expect(result.p.renderSections['haulPlanning:routeSearch']?.calls).toBe(1);
     await expect(viewport).toBeFocused();
     return { ...result, advanced: result.after.clock - before.clock, notices: result.after.noticeSerial - before.noticeSerial };
   }
@@ -165,6 +166,7 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     saves: p.save.calls, saveMs: Math.round(p.save.totalMs), renderMs: Math.round(p.render.totalMs),
     startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
+    haulRouteSearches: p.renderSections['haulPlanning:routeSearch']?.calls || 0,
     controlRefreshes: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('actionControls:'))
       .map(([id, sample]) => [id, sample.calls])),
     otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs),
