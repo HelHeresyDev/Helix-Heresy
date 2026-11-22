@@ -167,6 +167,9 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     startupUiCalls: p.startupUi.calls, startupUiMs: Math.round(p.startupUi.totalMs),
     mapSurfaceMs: Math.round(p.mapSurface.totalMs), sceneMs: Math.round(p.mapScene.totalMs),
     haulRouteSearches: p.renderSections['haulPlanning:routeSearch']?.calls || 0,
+    exteriorAmbientLookups: p.renderSections['environment:exteriorAmbient']?.calls || 0,
+    systemsMs: Object.fromEntries(Object.entries(p.systems).sort((a, b) => b[1].totalMs - a[1].totalMs)
+      .map(([id, sample]) => [id, Math.round(sample.totalMs)])),
     controlRefreshes: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('actionControls:'))
       .map(([id, sample]) => [id, sample.calls])),
     otherRenderMs: Math.round(p.render.totalMs - p.mapSurface.totalMs),

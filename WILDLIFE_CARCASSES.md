@@ -479,3 +479,19 @@ second four when attacked. The warning, map focus and Continue state were
 unchanged. The separate Foundry check moves the Biomass, seals its source
 route, verifies the blocked request queues nothing, then confirms the preview
 and queue select the same reachable alternate with no stock spent at booking.
+
+### Outdoor weather lookup profile
+
+The same paired field test timed the per-tile outdoor ambient lookup inside
+diffusion and refreshed the timings for each simulation system. It measured
+6,990 lookups taking 15 ms in the completed 12.027 s shortcut, and 2,796
+lookups taking 7 ms in the interruption that stopped at second four. Even
+eliminating all those lookups would save only about 0.1% of either request.
+No weather batching, tile update, remote climate, or cadence change was made.
+
+The completed request spent 3.941 s on the full environment bucket, 2.228 s
+on biology, 1.075 s on administration, and 0.986 s on actor behavior. The
+environment bucket is still the largest measured simulation cost, but the
+profile does not attribute the rest of it to a particular routine. The
+outdoor timing is nested within the environment bucket, not additional time.
+Run the same `field Next Event shortcut` check to repeat the profile.

@@ -31259,6 +31259,8 @@
     if (!elapsedHours) return 0;
     const environments = ensureTileEnvironments(map);
     const envelopeContext = buildSurfaceEnvelopeContext(map);
+    const sections = simulationPerformance.renderSections;
+    const ambientTiming = sections && (sections["environment:exteriorAmbient"] ||= {});
     const deltas = Object.fromEntries(Object.keys(environments).map((key) => [key, environmentDeltaRecord()]));
     const edges = [...tileEnvironmentOpenEdges(map, environments), ...tileEnvironmentBarrierEdges(map, environments)];
     for (const edge of edges) {
@@ -31279,7 +31281,9 @@
       const exterior = ["outdoor", "coveredExterior", "roof", "openAir"].includes(envelope.kind);
       if (exterior) {
         const ambientFraction = 1 - Math.exp(-SURFACE_AMBIENT_RELAXATION_PER_HOUR * elapsedHours);
+        const ambientStartedAt = ambientTiming ? performance.now() : 0;
         const outside = outsideAmbientAtCell(record.cell);
+        if (ambientTiming) recordPerformanceSample(ambientTiming, performance.now() - ambientStartedAt);
         delta.temperatureC += (outside.temperatureC - record.temperatureC) * ambientFraction;
         delta.humidity += (outside.humidity - record.humidity) * ambientFraction;
         delta.manaDensity += (outside.manaDensity - record.manaDensity) * ambientFraction;
