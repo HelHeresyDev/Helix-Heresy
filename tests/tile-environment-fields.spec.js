@@ -8,6 +8,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const appUrl = pathToFileURL(path.join(projectRoot, 'index.html')).href;
 const { activeRunStorageKey } = require('./helpers/active-run-storage');
 const { startLifecycleRun } = require('./helpers/start-lifecycle-run');
+const { genomeForTraits } = require('./gene-fixtures');
 
 async function startRun(page) {
   await page.goto(appUrl);
@@ -157,6 +158,52 @@ test('environment uses the current geometry after excavation opens a solid barri
   const digest = ({ tiles, rooms, compartmentEnvironments }) =>
     createHash('sha256').update(JSON.stringify({ tiles, rooms, compartmentEnvironments })).digest('hex');
   console.log(`Environment hashes (solid rock, excavated, breached door): ${[solid, opened, breached].map(digest).join(', ')}`);
+});
+
+test('two released slimes feed in order from the same finite tile', async ({ page }) => {
+  test.setTimeout(120000);
+  await startLifecycleRun(page, 'shared-air-feeding');
+  const { seed, complexity } = await page.evaluate(() => window.helixHeresyDebug.exportSurveyExpeditionTestState());
+  const genome = genomeForTraits({ seed, complexity, traits: {
+    sustenance: 'fume absorber', element: 'none', behavior: 'idle pooling', stability: 'steady',
+    size: 'thumb-sized', consistency: 'soft gelatin',
+  } });
+  const result = await page.evaluate(genome => {
+    const d = window.helixHeresyDebug;
+    const initial = d.exportSurveyExpeditionTestState();
+    const cell = initial.labMap.rooms.mainLab.anchor;
+    const substance = 'unidentified-airborne-contaminant';
+    initial.slimes = ['first', 'second'].map(id => ({
+      id, name: id, genome, status: 'released', mapCell: cell, roomId: 'mainLab',
+      mature: true, matureAt: initial.clock, createdAt: initial.clock, deathAt: initial.clock + 3600,
+      lifecycleVersion: 1, nextAutonomousDecisionAt: initial.clock + 60,
+      stats: { nutrition: { current: 20, max: 100 }, currentMass: { current: 30, max: 100 } },
+    }));
+    const run = concentration => {
+      for (const tile of Object.values(initial.tileEnvironments)) tile.airborne = { [substance]: concentration };
+      d.importSurveyExpeditionTestState(initial);
+      d.advanceTestRunTime(5);
+      const tiles = d.tileEnvironmentSnapshot();
+      const { slimes, rooms, compartmentEnvironments } = d.exportSurveyExpeditionTestState();
+      return {
+        tile: d.tileEnvironmentSnapshot(cell)[0],
+        tiles, slimes: slimes.map(({ id, stats, roomActivity, welfare }) => ({ id, stats, roomActivity, welfare })),
+        rooms: rooms.map(({ id, attributes }) => ({ id, attributes })), compartmentEnvironments,
+      };
+    };
+    return { full: run(32), nearlyDepleted: run(8.003), noSupply: run(0) };
+  }, genome);
+  expect(result.full.tile.airborneTotal).toBeLessThan(32);
+  for (const [index, slime] of result.full.slimes.entries()) {
+    expect(slime.roomActivity.type).toBe('feedingOnContamination');
+    expect(slime.stats.nutrition.current).toBeGreaterThan(result.noSupply.slimes[index].stats.nutrition.current);
+  }
+  const [first, second] = result.nearlyDepleted.slimes;
+  expect(first.stats.nutrition.current).toBeGreaterThan(second.stats.nutrition.current);
+  expect(result.nearlyDepleted.tile.airborneTotal).toBeCloseTo(8, 6);
+  const digest = ({ tiles, slimes, rooms, compartmentEnvironments }) =>
+    createHash('sha256').update(JSON.stringify({ tiles, slimes, rooms, compartmentEnvironments })).digest('hex');
+  console.log(`Shared-tile feeding hashes (plentiful, nearly depleted): ${digest(result.full)}, ${digest(result.nearlyDepleted)}`);
 });
 
 test('open porous containers exchange local air faster than sealed containers', async ({ page }) => {

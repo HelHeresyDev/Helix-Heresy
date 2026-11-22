@@ -552,3 +552,36 @@ attack still interrupted on second four. A separate run produced identical
 serialized tile, declared-room, and compartment readings before and after
 the optimization with an intact rock barrier, after excavation, and after
 a door breach. No simulation cadence changed.
+
+### Shared room layout during released-slime behavior
+
+Released slimes removing airborne contamination or leaving emissions now
+share the inferred layout within one behavior update. The tile is still
+read and written in order, and tile, compartment, and declared-room
+readings are refreshed at the original checkpoints. The ordinary map
+identity, topology, and door checks still invalidate the layout. Nothing
+is cached between updates.
+
+The next-event profile also recorded 27 layout rebuilds in the completed
+biology update sequence. They came from environmental feeding, with
+physical placement checks during growth replacing the map object between
+feeders. Those calls still rebuild when needed; this pass did not relax
+the map check or alter placement.
+
+| Chromium field shortcut | Before | After |
+| --- | ---: | ---: |
+| Completed: layouts built in released-slime behavior | 60 | 10 |
+| Completed: time building those layouts | 0.772 s | 0.141 s |
+| Completed: whole shortcut | 10.223 s | 9.930 s |
+| Threat interruption: layouts built in released-slime behavior | 24 | 4 |
+| Threat interruption: time building those layouts | 0.274 s | 0.049 s |
+| Threat interruption: whole shortcut | 5.797 s | 5.696 s |
+
+These are single-run timings; summary refresh counts and simulation cadence
+were unchanged. The completed shortcut still advanced 9.375 game seconds,
+and the attack still interrupted on second four. Two released feeders sharing
+one tile produced identical serialized stats, welfare, activity, and
+environment readings with both plentiful and nearly depleted supplies.
+Both benefited when there was enough; on the nearly depleted tile, the
+first gained more and the tile stopped at the existing floor. The excavation
+and door-breach control also matched its previous readings.

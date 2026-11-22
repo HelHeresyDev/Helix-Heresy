@@ -157,7 +157,8 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     expect(result.p.renderSections['actionControls:liveReadouts']).toBeUndefined();
     expect(result.p.renderSections['haulPlanning:routeSearch']?.calls).toBe(1);
     expect(result.p.renderSections['diffusion:excavatedKeys']?.calls).toBe(Math.ceil(result.after.clock - before.clock));
-    expect(result.p.renderSections['roomSummaries:geometryReuse']?.calls).toBe(2 * result.p.systems.environment.calls);
+    expect(result.p.renderSections['roomSummaryGeometryReuseBySystem:environment']?.calls).toBe(2 * result.p.systems.environment.calls);
+    expect(result.p.renderSections['roomSummaryGeometryReuseBySystem:actor']?.calls).toBeGreaterThan(0);
     await expect(viewport).toBeFocused();
     return { ...result, advanced: result.after.clock - before.clock, notices: result.after.noticeSerial - before.noticeSerial };
   }
@@ -173,6 +174,10 @@ test('field Next Event shortcut redraws the current map, preserves focus and sho
     roomSummaryCalls: p.renderSections['roomSummaries:allCallers']?.calls || 0,
     roomGeometryBuilds: p.renderSections['roomSummaries:geometry']?.calls || 0,
     roomGeometryReuses: p.renderSections['roomSummaries:geometryReuse']?.calls || 0,
+    roomGeometryBySystem: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('roomSummaryGeometryBySystem:'))
+      .map(([id, sample]) => [id.split(':')[1], sample.calls])),
+    roomGeometryReusesBySystem: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('roomSummaryGeometryReuseBySystem:'))
+      .map(([id, sample]) => [id.split(':')[1], sample.calls])),
     systemsMs: Object.fromEntries(Object.entries(p.systems).sort((a, b) => b[1].totalMs - a[1].totalMs)
       .map(([id, sample]) => [id, Math.round(sample.totalMs)])),
     controlRefreshes: Object.fromEntries(Object.entries(p.renderSections).filter(([id]) => id.startsWith('actionControls:'))

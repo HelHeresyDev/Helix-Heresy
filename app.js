@@ -25010,9 +25010,15 @@
     bucket.maxMs = Math.max(Number(bucket.maxMs) || 0, elapsedMs);
   }
 
+  let profiledSimulationSystem = "";
+
   function profileSimulationSystem(id, callback) {
     const startedAt = performance.now();
-    const result = callback();
+    const previousSystem = profiledSimulationSystem;
+    if (simulationPerformance.renderSections) profiledSimulationSystem = id;
+    let result;
+    try { result = callback(); }
+    finally { profiledSimulationSystem = previousSystem; }
     const elapsedMs = performance.now() - startedAt;
     simulationPerformance.systems[id] ||= { calls: 0, totalMs: 0, lastMs: 0, maxMs: 0 };
     recordPerformanceSample(simulationPerformance.systems[id], elapsedMs);
@@ -32516,7 +32522,7 @@
         : labMapRoomCells(roomId, map).filter((cell) => tileEnvironmentAtCell(cell, map));
       let changed = false;
       for (const cell of cells) changed ||= adjustTileEnvironmentAtCell(cell, attributeKey, delta, options);
-      syncRoomAttributeSummaries();
+      syncRoomAttributeSummaries(map, null, options.roomSummaryContext);
       return changed;
     }
     const attribute = room.attributes[attributeKey];
@@ -32546,8 +32552,9 @@
     return Math.abs(environment[key] - before) >= TILE_ENVIRONMENT_EPSILON;
   }
 
-  function removeAirborneLoadAtCell(cell, amount) {
-    const environment = tileEnvironmentAtCell(cell);
+  function removeAirborneLoadAtCell(cell, amount, roomSummaryContext) {
+    const map = ensureLabMap();
+    const environment = tileEnvironmentAtCell(cell, map);
     const requested = Math.max(0, Number(amount) || 0);
     const total = environment ? airborneLoadTotal(environment.airborne) : 0;
     if (!environment || !requested || total <= 0) return 0;
@@ -32556,7 +32563,7 @@
     for (const id of Object.keys(environment.airborne)) environment.airborne[id] *= 1 - fraction;
     environment.airborne = normalizeAirborneLoads(environment.airborne);
     environment.updatedAt = state.clock;
-    syncRoomAttributeSummaries();
+    syncRoomAttributeSummaries(map, null, roomSummaryContext);
     return removed;
   }
 
@@ -35151,10 +35158,14 @@
       const geometry = renderSectionTimer("roomSummaries:");
       const { topologyRevision, doorRevision } = state.navigation || {};
       if (context?.map === map && context.topologyRevision === topologyRevision && context.doorRevision === doorRevision) {
+        const bySystem = profiledSimulationSystem ? renderSectionTimer("roomSummaryGeometryReuseBySystem:") : null;
         derived = context.inference;
+        bySystem?.(profiledSimulationSystem);
         geometry("geometryReuse");
       } else {
+        const bySystem = profiledSimulationSystem ? renderSectionTimer("roomSummaryGeometryBySystem:") : null;
         derived = inferLabCompartments(map);
+        bySystem?.(profiledSimulationSystem);
         geometry("geometry");
         if (context) Object.assign(context, { map, topologyRevision, doorRevision, inference: derived });
       }
@@ -60709,6 +60720,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       return 0;
     }
 
+    // Keep the writes and summary refreshes ordered. Only layout inference
+    // can be shared by bodies feeding or leaving residue in this update.
+    const roomSummaryContext = {};
     let changes = 0;
     for (const slime of state.slimes || []) {
       if (!slimeIsUncontained(slime) || slime.status === "dead" || !Formation.hasWill(slime)) {
@@ -60758,7 +60772,7 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         const drained = Math.min(eatRate, current - OUT_OF_CONTAINER_CONTAMINATION_FLOOR);
         if (drained > 0) {
           const before = current;
-          removeAirborneLoadAtCell(slimeCell, drained);
+          removeAirborneLoadAtCell(slimeCell, drained, roomSummaryContext);
           const after = airborneLoadTotal(localEnvironment.airborne);
           adjustSlimeStat(slime, "nutrition", drained * 0.4);
           adjustSlimeStat(slime, "stress", -drained * 0.05);
@@ -60826,7 +60840,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
         if (room && localEnvironment) {
           const before = airborneLoadTotal(localEnvironment.airborne);
           const residue = OUT_OF_CONTAINER_RESIDUE_PER_HOUR * roomEffectScale(room) * secondsToHours(elapsed);
-          adjustRoomAttribute(room.id, "contamination", residue, { cell: slimeCell, substanceId: `slime-emission:${slime.id}` });
+          adjustRoomAttribute(room.id, "contamination", residue, {
+            cell: slimeCell, substanceId: `slime-emission:${slime.id}`, roomSummaryContext
+          });
           const after = airborneLoadTotal(localEnvironment.airborne);
           slime.roomActivity = {
             type: "leavingResidue",
