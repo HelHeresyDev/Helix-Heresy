@@ -115,11 +115,10 @@ Both runs ended with one survivor, no births and the same breakdown of
 Lantern deaths (96 starvation, 19 dehydration, four background). More food
 windows did not yield sustained feeding or recruitment in this replay.
 
-**Priority within #3.38-D:** trace one starving Lantern group through
-detection, approach, grip and completed ingestion at an actual carcass. Fix
-the first demonstrated access failure before changing wind strength or food
-supply again. Separately, the marine records point to per-group access and
-repeat feeding, not a blanket need for more regional prey biomass.
+The first targeted Lantern case is traced below. Its lack of a meal was a
+physical access failure, not a demonstrated feeding bug. The remaining
+Lantern and marine records still call for per-group access and repeat
+feeding evidence, not a blanket increase in regional prey biomass.
 
 Execution took 3,647.034 seconds (60.8 minutes); the expanded final account
 was 363 MB. Positioned wildlife carcass sites rose from 22,640 at day 30 to
@@ -129,6 +128,40 @@ observation, not a measured browser save size or proof that those sites can
 be discarded. Raw checkpoints and the full report are in the ignored
 `.replay-checkpoints/current-source-small-VaeaU47X/`; only compact evidence
 is tracked. Use the replay command below with a fresh checkpoint directory.
+
+### Day 10 to 13 Lantern shortfall: wind prevented a grip
+
+The day-10 checkpoint for source `43996615` was resumed through day 13 with
+all other species, weather, and carcass inventories intact. The traced
+original cohort, `natural-group:beast-population:carrion-lantern:01:0:young`,
+comprised two juveniles in `habitat:46:surface`. It reproduced the archived
+first food shortfall at 1,030,024.756 game seconds (day 11.92), including the
+timestamp and inventory in the first-shortfall snapshot.
+
+- A private audit sampled the actual path at 72 points or short segments.
+  Five original insect carcass sites had compatible tissue within 40 m;
+  the closest sampled site was 9.68 m away. This is a sampled lower bound
+  on nearby carcass sites, not a count of everything the flock passed.
+- All 323 elapsed intervals had 7.24 m/s airflow. The body's own grip-force
+  limit was below the drag force throughout, even before evaluating a
+  carcass's attachment strength. The passive pass was too fast to stay in
+  reach for 60 seconds. Position and available tissue alone were insufficient.
+- The actual foraging loop recorded 72 sensing calls with no eligible
+  target, 72 capture reviews with no claims, and zero approach, handling,
+  or eating time. Both juveniles were still alive at day 13, with no fat
+  or food left and health down to 89.2%.
+
+This is one explained food-access failure, not proof that every Lantern
+shortfall has the same cause. No wind, movement, intake, carcass, or
+knowledge rule changed. Two focused checks verify that the observer
+leaves a successful control run unchanged and distinguishes nearby but
+unholdable tissue from a distant corpse.
+
+```sh
+node scripts/trace-lantern-shortfall.js \
+  .replay-checkpoints/current-source-small-VaeaU47X/day-10.json \
+  natural-group:beast-population:carrion-lantern:01:0:young 13
+```
 
 ## Historical pre-shelter integrated 120-day control
 
