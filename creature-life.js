@@ -228,7 +228,7 @@
         role: a.speciesId === 'beast:ember-ant' ? 'worker' : 'individual', colonyId: a.life.colonyId };
       // A blocked physical birth keeps its original embryo/fragment and mass.
       if (!ctx.recruit(child, a)) return;
-      r.emitted.push(id);
+      if (!r.emitted.includes(id)) r.emitted.push(id);
     }
     emit(a, { reproductiveWasteKg: Math.max(0, r.investedKg - p.newbornKg * p.offspring) }, ctx);
     a.life.events.push({ kind: 'recruited', at, id: r.id, childIds: copy(r.emitted) }); a.life.reproduction = null;

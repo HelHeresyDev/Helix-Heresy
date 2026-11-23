@@ -546,13 +546,74 @@
       return hasSeam(site) && t?.sourceRegionId !== r.id ? null : t;
     }, context.observationOnly)).sort((a, b) => a.distanceM - b.distanceM || a.id.localeCompare(b.id)).slice(0, 64);
   }
-  function birth(state, record, map, parent, child, at) {
-    const s = open(state, record, map), detail = s.details[parent.id];
-    if (!detail || detail.memberId !== parent.life.originalMemberId) return false;
+  const MIRE_CHOIR = 'beast:mire-choir';
+  function cellCenter(n, c) {
+    return Foreign.offset(n.frame, (c.x - n.bounds.x + .5) * n.tileSizeM, (c.y - n.bounds.y + .5) * n.tileSizeM);
+  }
+  function fundedNurseryWindow(state, s, parent, brood, at, terrain) {
+    const n = parent?.nativePopulation, d = s?.details[parent?.id];
+    if (!s || !state || s.sourceId !== state.sourceId || !n || n.background || n.sourceId !== state.sourceId || parent.speciesId !== MIRE_CHOIR
+      || !Number.isFinite(at) || at < s.clock || n.regionId !== brood?.sourceRegionId
+      || d?.status !== 'detailed' || d.regionId !== n.regionId || d.memberId !== parent.life?.originalMemberId
+      || !brood.externalNursery || brood.disposedAt != null || !parent.life.populationBroods?.includes(brood)) return null;
+    const r = s.regions.find(r => r.id === n.regionId), nursery = r?.nurseries?.find(p => p.id === brood.sourceNurseryId);
+    const p = nursery?.position, site = state.sites[n.siteId], tile = n.tileSizeM, b = n.bounds;
+    if (r?.kind !== 'wetland' || r.oxygen === false || !nursery?.habitatSuitable || nursery.destroyedAt != null
+      || nursery.speciesId !== MIRE_CHOIR || nursery.enabled === false || !nursery.phases.includes(P.monthAt(s.calendar, at).season)
+      || !site?.parcelIds || p?.regionId !== r.id || !Number.isFinite(p.altitudeM) || !(p.altitudeM < 0)
+      || !(nursery.reservedAreaHa > 0) || !(nursery.capacity > 0)) return null;
+    const radius = Math.sqrt(nursery.reservedAreaHa * 10000 / Math.PI);
+    const [x, y] = Foreign.relative(n.frame, p.eastM, p.northM);
+    const center = { x: b.x + Math.floor(x / tile), y: b.y + Math.floor(y / tile), z: b.z };
+    const fundedWater = cell => {
+      if (cell.z !== b.z || cell.x < b.x || cell.x >= b.x + b.width || cell.y < b.y || cell.y >= b.y + b.height) return false;
+      const parcel = state.parcels[site.parcelIds[Bodies.key(cell)]], t = terrain?.(cell);
+      return parcel?.sourceRegionId === r.id && parcel.fieldWetland && parcel.oxygen !== false
+        && (parcel.resources.waterL || 0) / (parcel.areaHa * 10000 * 1000) >= -p.altitudeM
+        && (!terrain || t?.sourceRegionId === r.id && t.known !== false && t.oxygen !== false && !t.protected && !t.foundation
+          && !t.warded && !t.solid && t.waterDepthM >= -p.altitudeM);
+    };
+    if (!fundedWater(center)) return null;
+    if (brood.investedKg + 1e-8 < brood.requiredKg || brood.investedMana + 1e-8 < brood.requiredMana) {
+      const here = cellCenter(n, parent.mapCell);
+      if (!fundedWater(parent.mapCell) || Math.hypot(here.eastM - p.eastM, here.northM - p.northM) > radius + parent.bodyPhysics.dimensions.lengthM) return null;
+    }
+    const distance = cell => {
+      const here = cellCenter(n, cell);
+      return Math.hypot(here.eastM - p.eastM, here.northM - p.northM);
+    };
+    const allows = cell => fundedWater(cell) && distance(cell) <= radius;
+    return { altitudeM: p.altitudeM, allows, cells() {
+      // Only one bounded local window is searched at a hatch attempt. The
+      // rest of the original brood stays batched and keeps its paid matter.
+      const span = Math.min(5, Math.ceil(radius / tile)), found = [];
+      for (let y = center.y - span; y <= center.y + span; y++) for (let x = center.x - span; x <= center.x + span; x++) {
+        const cell = { x, y, z: center.z };
+        if (allows(cell)) found.push(cell);
+      }
+      return found.sort((a, b) => distance(a) - distance(b) || a.y - b.y || a.x - b.x);
+    } };
+  }
+  const nurseryWindow = (state, parent, brood, at, terrain) => fundedNurseryWindow(state, cache.get(state)?.account, parent, brood, at, terrain);
+  function claimBirthAtSite(state, s, parent, child, at, terrain) {
+    const detail = s.details[parent?.id], n = parent?.nativePopulation;
+    if (!n || n.background || n.sourceId !== state.sourceId || s.sourceId !== state.sourceId || !child?.bodyPhysics
+      || child.roomId !== parent.roomId || detail?.status !== 'detailed' || detail.regionId !== n.regionId
+      || detail.memberId !== parent.life?.originalMemberId) return false;
+    const brood = parent.life.populationBroods?.find(b => child.id.startsWith(`${b.id}:`));
+    if (brood?.externalNursery) {
+      const nest = fundedNurseryWindow(state, s, parent, brood, at, terrain);
+      if (!nest || child.bodyPhysics.mode !== 'swimming' || child.bodyPhysics.altitudeM !== nest.altitudeM
+        || nest.altitudeM + child.bodyPhysics.dimensions.heightM > 0
+        || !Bodies.cells(child, child.mapCell, n.tileSizeM).every(nest.allows)) return false;
+    }
     detail.actor = parent;
     if (!P.registerLocalBirth(s, parent.id, child, at)) return false;
-    child.nativePopulation = copy(parent.nativePopulation); state.clock = s.clock; return true;
+    child.nativePopulation = { ...copy(n), sourcePosition: { regionId: n.regionId, ...cellCenter(n, child.mapCell),
+      altitudeM: child.bodyPhysics.altitudeM } };
+    state.clock = s.clock; return true;
   }
+  const birth = (state, record, map, parent, child, at, terrain) => claimBirthAtSite(state, open(state, record, map), parent, child, at, terrain);
   function advanceRemains(s) {
     // The regional food web owns the matter; refresh only the private corpse
     // representation after its regular event processing.
@@ -605,6 +666,7 @@
     const d = cache.get(state)?.account.details[actorId]; return Boolean(d && !d.actor?.nativePopulation?.background);
   };
   const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
-  return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, soilCoverAt, carrion, birth, capacity, diff, apply,
+  return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, soilCoverAt, carrion, birth, nurseryWindow,
+    fundedNurseryWindow, claimBirthAtSite, capacity, diff, apply,
     hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors, encounteredPopulationIds };
 });

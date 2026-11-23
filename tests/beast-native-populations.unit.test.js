@@ -578,6 +578,98 @@ test('wetland bank parcels debit their own source and dry or unvisited water nev
   assert.equal(returning[0].bodyPhysics.altitudeM, actor.bodyPhysics.altitudeM);
   assert.equal(savedAccount.regions.find(r => r.id === actor.nativePopulation.regionId).stocks.waterL, stock);
 });
+test('a paid Mire Choir clutch hatches only in its visited original nursery and returns the unhatched balance', () => {
+  const D = require('../creature-biology'), G = require('../beast-demography'), Life = require('../creature-life');
+  const Wild = require('../wilderness-beasts'), { source } = require('../scripts/benchmark-beast-demography');
+  const species = 'beast:mire-choir', p = D.lifecycle[species], binding = { worldId: 'paid-wetland', runId: 'survey' };
+  const src = source(200, species), [originalRegion] = src.regions, [authoredNest] = originalRegion.nurseries;
+  src.nativeEncounters = true;
+  Object.assign(originalRegion, { kind: 'wetland', oxygen: true });
+  Object.assign(authoredNest, { capacity: p.offspring + 1, reservedAreaHa: Math.PI * 4 / 10000,
+    position: { regionId: originalRegion.id, eastM: 2.5, northM: 2.5, altitudeM: -2 } });
+  originalRegion.nurseries.push({ ...copy(authoredNest), id: 'alternate-nursery', capacity: 1,
+    position: { ...authoredNest.position, eastM: 6.5 } });
+  let s = P.create(src, binding), [g] = s.groups, [female] = g.cohorts, [region] = s.regions;
+  const births = () => s.births.reduce((n, b) => n + b.count, 0);
+  P.advance(s, 5 * P.DAY, true, true);
+  const b = female.demography.broods.find(b => b.successful.length);
+  assert.ok(b); const ordinal = b.successful[0][0], start = s.clock, due = b.dueAt, nest = { x: 2, y: 2, z: 6 };
+  const away = { x: 6, y: 2, z: 6 }, bounds = { x: 0, y: 0, z: 6, width: 8, height: 6 };
+  let owner = N.create({ id: src.id, physicalBinding: true }, binding);
+  owner.sites.bank = { cellId: 'original-wetland-cell', kind: 'surface', origin: { eastM: 0, northM: 0 }, parcelIds: {} };
+  const wet = { fieldWetland: true, sourceRegionId: region.id, materialKg: 0, areaHa: .0001, resources: { waterL: 4000 } };
+  const visit = cell => { const k = B.key(cell); owner.sites.bank.parcelIds[k] = k; owner.parcels[k] = copy(wet); };
+  const terrain = cell => {
+    const row = owner.parcels[owner.sites.bank.parcelIds[B.key(cell)]];
+    return row && { ...row, oxygen: true, waterDepthM: row.resources.waterL / 1000 };
+  };
+  for (const tile of [nest, { ...nest, x: 1 }, { ...nest, x: 3 }, { ...nest, y: 1 }, { ...nest, y: 3 }, away]) visit(tile);
+  let mother = P.claimLocal(s, g.id, female.id, ordinal, 'original-mother', start, { alive: true, local: true, tileSizeM: 1,
+    terrain, originalPosition: () => ({ regionId: region.id, cell: nest, altitudeM: -2, mode: 'swimming' }),
+    originalReserves: () => ({ mana: 0, stamina: 10, energy: { heatMJ: 0, chargeMJ: 0, focus: 0, crownKg: 0, lightKg: 0 } }) });
+  assert.ok(mother); mother.roomId = 'survey-field';
+  mother.nativePopulation = { sourceId: s.sourceId, regionId: region.id, siteId: 'bank', frame: owner.sites.bank.origin, tileSizeM: 1, bounds };
+  const [clutch] = mother.life.populationBroods, required = clutch.requiredKg - clutch.investedKg;
+  assert.ok(clutch.investedKg > 0 && required > 0);
+  assert.ok(P.removeStock(s, region.id, 'foodKg', required, start, 'carried-original-clutch-funding'));
+  assert.equal(Life.feed(mother, 'foodKg', required), required);
+  const siteAt = (at, t = terrain) => N.fundedNurseryWindow(owner, s, mother, mother.life.populationBroods[0], at, t);
+  Life.advanceReproduction(mother, due - 1, due - start, { alive: true, local: true, habitatSuitable: true,
+    populationNurseryAccessible: () => Boolean(siteAt(due - 1)), recruit: () => assert.fail('Incubation was not due') });
+  assert.ok(Math.abs(clutch.investedKg - clutch.requiredKg) < 1e-8);
+  mother.mapCell = away;
+  const makeChild = (data, cell, at) => {
+    const child = Wild.actor(species, data.id, cell, mother.populationId, at, data);
+    child.roomId = mother.roomId; child.bodyPhysics.mode = 'swimming'; child.bodyPhysics.altitudeM = -2;
+    return child;
+  };
+  let child, available = 1;
+  const hatch = (at, t = terrain) => Life.advanceReproduction(mother, at, 1, {
+    alive: true, local: true, habitatSuitable: true, populationNurseryAccessible: () => Boolean(siteAt(at, t)),
+    recruit(data) {
+      assert.equal(N.claimBirthAtSite(owner, s, mother, makeChild(data, away, at), at, t), false);
+      for (const cell of siteAt(at, t).cells()) {
+        const young = makeChild(data, cell, at);
+        if (B.habitatReason(young, cell, 'swimming', -2, { terrain: t, blocked: () => !available })) continue;
+        if (N.claimBirthAtSite(owner, s, mother, young, at, t)) { child = young; available--; return true; }
+      }
+      return false;
+    }
+  });
+  const centerParcel = owner.parcels[B.key(nest)];
+  delete owner.sites.bank.parcelIds[B.key(nest)]; hatch(due); assert.equal(child, undefined);
+  visit(nest); owner.parcels[B.key(nest)].resources.waterL = 1000; hatch(due); assert.equal(child, undefined);
+  owner.parcels[B.key(nest)] = centerParcel;
+  hatch(due, cell => B.key(cell) === B.key(nest) ? { ...terrain(cell), warded: true } : terrain(cell));
+  assert.equal(child, undefined); assert.equal(clutch.emitted.length, 0);
+  hatch(due); assert.ok(child); const childId = child.id, originalId = child.life.originalMemberId;
+  assert.deepEqual(child.nativePopulation.sourcePosition, authoredNest.position);
+  assert.equal(s.details[childId].nurseryId, authoredNest.id);
+  assert.deepEqual(clutch.emitted, [childId]); assert.equal(births(), 1);
+  // With only the one hatchling counted, there would be room for another full
+  // clutch. The 39 pending embryos still reserve their original capacity.
+  G.prepare(s, due); G.init(female).credit = 1; G.start(s, g, female, due);
+  assert.equal(G.init(female).broods.length, 0);
+  const roomy = P.normalize(copy(s), binding), [roomyGroup] = roomy.groups, [roomyFemale] = roomyGroup.cohorts;
+  roomy.regions[0].nurseries[0].capacity = 2 * p.offspring;
+  G.prepare(roomy, due); G.start(roomy, roomyGroup, roomyFemale, due);
+  assert.equal(roomyFemale.demography.broods.length, 1);
+  owner = N.normalize(copy(owner), binding); s = P.normalize(copy(s), binding);
+  mother = s.details[mother.id].actor; child = s.details[childId].actor; [g] = s.groups; [region] = s.regions;
+  hatch(due); assert.equal(s.details[childId].memberId, originalId);
+  assert.ok(P.returnLocal(s, childId, due, child.nativePopulation.sourcePosition));
+  assert.equal(N.claimBirthAtSite(owner, s, mother, child, due, terrain), false);
+  assert.ok(P.returnLocal(s, mother.id, due, { regionId: region.id, eastM: 6.5, northM: 2.5, altitudeM: -2 }));
+  // Even if the group chooses a different bed, the paid clutch stayed here.
+  g.breeding.siteId = 'alternate-nursery';
+  assert.ok(P.settleRegions(s, due + P.DAY, [region.id]));
+  assert.equal(births(), p.offspring);
+  assert.ok(Math.abs(region.outputs.reproductiveWasteKg + births() * p.newbornKg - clutch.investedKg) < 1e-8);
+  assert.ok(g.cohorts.filter(c => c.generated).every(c => c.nurseryId === authoredNest.id));
+  assert.ok(P.settleRegions(s, due + 2 * P.DAY, [region.id]));
+  assert.equal(births(), p.offspring);
+  assert.ok(P.normalize(copy(s), binding));
+});
 test('a mapped shoreline preserves its original rotated offshore body, finite salt water, and surface visibility limits', () => {
   const Foreign = require('../foreign-wilderness'), World = require('../strategic-world');
   const { map, binding } = original(), record = map.beastHabitatSources, coast = Foreign.coastForLand(map, 4, record);

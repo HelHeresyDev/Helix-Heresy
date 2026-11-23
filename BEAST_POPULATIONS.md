@@ -1333,6 +1333,24 @@ and return retain the same original identity. The matching terrain check
 claims no swimmer from dry or unvisited tiles and does not debit water
 again when those tiles are revisited.
 
+#### Funded clutches at the original wetland nursery
+
+When an original Mire Choir parent with a regional clutch comes into local
+play, the clutch keeps its original nursery, incubation time, and paid
+investment. The parent must be in reach of the nursery to add any missing
+investment. A paid clutch can hatch in its original visited water even if the
+parent has swum away. A dry, unvisited, obstructed, or overcrowded bed does not
+move the hatch to the parent or to another nursery. Each hatchling needs a
+free, submerged footprint in water funded by that same wetland.
+
+Only the hatchlings that fit become local bodies. Unhatched eggs still
+reserve capacity at their nursery; saves retain emitted IDs, and withdrawing
+returns the remaining funded clutch to the regional account at that nursery.
+This does not start new local clutches or reveal nursery or population data
+outside the ordinary observation rules. The prepared custody check hatches
+one of forty young, reloads, returns the same young and parent to regional
+custody, and accounts for forty births total without a second claim.
+
 #### Private field notes and received copies
 
 An original creature actually seen on an ordinary foreign survey supplies a

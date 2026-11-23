@@ -32,26 +32,29 @@
   }
   function prepare(s, at) {
     const value = index(s); value.groups = new Map(); value.cohorts = new Map(); value.cohortKeys = new Map(); value.occupancy = new Map();
+    const occupy = (regionId, nurseryId, n) => {
+      const key = `${regionId}:${nurseryId}`;
+      if (n > 0) value.occupancy.set(key, (value.occupancy.get(key) || 0) + n);
+    };
     for (const g of s.groups) {
       value.groups.set(g.id, g);
       const keys = []; value.cohortKeys.set(g.id, keys);
       for (const c of g.cohorts) {
         const key = `${g.id}:${c.id}`; keys.push(key); value.cohorts.set(key, c);
         if (c.nurseryId && at - (c.birthSpan?.[1] ?? c.bornAt) < Data.lifecycle[c.speciesId].independentDays * DAY) {
-          const key = `${g.regionId}:${c.nurseryId}`;
-          value.occupancy.set(key, (value.occupancy.get(key) || 0) + size(c.ranges));
+          occupy(g.regionId, c.nurseryId, size(c.ranges));
         }
         for (const b of c.demography?.broods || []) {
-          const key = `${b.regionId}:${b.nurseryId}`;
-          value.occupancy.set(key, (value.occupancy.get(key) || 0) + size(b.parents) * Data.lifecycle[c.speciesId].offspring);
+          occupy(b.regionId, b.nurseryId, size(b.parents) * Data.lifecycle[c.speciesId].offspring - (b.emitted?.length || 0));
         }
       }
     }
-    for (const d of Object.values(s.details || {})) if (d.status === 'detailed' && d.nurseryId) {
+    for (const d of Object.values(s.details || {})) if (d.status === 'detailed') {
+      const p = Data.lifecycle[d.speciesId];
       const age = d.actor?.life ? (at - d.actor.life.bornAt) / DAY : d.ageDays + (at - d.detailedAt) / DAY;
-      if (age < Data.lifecycle[d.speciesId].independentDays) {
-        const key = `${d.regionId}:${d.nurseryId}`; value.occupancy.set(key, (value.occupancy.get(key) || 0) + 1);
-      }
+      if (d.nurseryId && age < p.independentDays) occupy(d.regionId, d.nurseryId, 1);
+      for (const b of d.actor ? d.actor.life?.populationBroods || [] : d.demography?.broods || [])
+        if (b.externalNursery && b.disposedAt == null) occupy(b.sourceRegionId, b.sourceNurseryId, p.offspring - b.emitted.length);
     }
   }
   const size = ranges => ranges.reduce((n, [lo, hi]) => n + hi - lo, 0);
@@ -97,11 +100,11 @@
     // a generic ecological score may be silently converted into body matter.
     return p.foodKgDay > 0 ? { [g.resources?.foodKg || 'foodKg']: 1 } : null;
   }
-  function site(s, g, at) {
-    if (!g.breeding || g.transit || g.windDriven && g.cohorts.some(c => c.windDrift && (c.windDrift.velocity.x || c.windDrift.velocity.y))
+  function site(s, g, at, siteId = g.breeding?.siteId) {
+    if (!siteId || g.transit || g.windDriven && g.cohorts.some(c => c.windDrift && (c.windDrift.velocity.x || c.windDrift.velocity.y))
       || g.will === false || g.willing === false || Life.existingOwners[g.speciesId]) return null;
-    const r = region(s, g.regionId), nursery = r?.nurseries?.find(n => n.id === g.breeding.siteId);
-    if (!nursery || nursery.speciesId !== g.speciesId || nursery.enabled === false || !nursery.habitatSuitable
+    const r = region(s, g.regionId), nursery = r?.nurseries?.find(n => n.id === siteId);
+    if (!nursery || nursery.speciesId !== g.speciesId || nursery.enabled === false || nursery.destroyedAt != null || !nursery.habitatSuitable
       || !nursery.phases.includes(s.plans.at(-1).season) || !(nursery.capacity > 0)) return null;
     if (g.windDriven && (!nursery.position || !g.cohorts.some(c => c.role === 'female' && c.regionalPosition?.regionId === r.id
       && Math.hypot(c.regionalPosition.eastM - nursery.position.eastM, c.regionalPosition.northM - nursery.position.northM) <= 1))) return null;
@@ -200,7 +203,8 @@
         ...(storeFunded ? { storeFunded: true, storeReserveKg } : {}) });
     }
     for (const brood of c.demography?.broods || []) {
-      if (!site(s, g, at) || brood.regionId !== g.regionId) continue;
+      const nursery = site(s, g, at, external(p) ? brood.nurseryId : undefined);
+      if (!nursery || brood.regionId !== g.regionId) continue;
       const units = size(brood.parents), days = Math.max(.25, p.incubationDays);
       const matter = brood.requiredKg * units - brood.investedKg > EPS ? brood.requiredKg * units / days : 0;
       const mana = brood.requiredMana * units - brood.investedMana > EPS ? brood.requiredMana * units / days : 0;
@@ -221,8 +225,9 @@
     const p = Data.lifecycle[c.speciesId];
     d.broods = d.broods.filter(b => {
       const units = size(b.parents);
-      if (at + EPS < b.dueAt || b.investedKg + EPS < b.requiredKg * units || b.investedMana + EPS < b.requiredMana * units
-        || !site(s, g, at) || g.regionId !== b.regionId) return true;
+      if (at + EPS < b.dueAt || b.investedKg + EPS < b.requiredKg * units || b.investedMana + EPS < b.requiredMana * units) return true;
+      const nursery = site(s, g, at, external(p) ? b.nurseryId : undefined);
+      if (!nursery || g.regionId !== b.regionId) return true;
       const born = Math.max(0, size(b.successful) * p.offspring - (b.emitted?.length || 0));
       const females = Math.floor(born / 2 + Life.random(`${b.id}:sex`));
       const roles = c.role === 'queen' ? [['worker', born]] : b.fragment || /propagule/i.test(p.method) ? [['individual', born]]

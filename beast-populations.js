@@ -1052,20 +1052,32 @@
     const parent = s.details[parentActorId], a = parent?.actor, p = Biology.lifecycle[parent?.speciesId];
     if (!a || a.status === 'dead' || parent.status !== 'detailed' || !child || !Life.valid(child) || !Bodies.valid(child)
       || child.speciesId !== a.speciesId || Math.abs(child.bodyPhysics.massKg - p.newbornKg) > EPS) return false;
-    if (s.details[child.id]) return s.details[child.id].actor?.id === child.id;
     const r = [...(a.life.populationBroods || []), a.life.reproduction].filter(Boolean).find(r => child.id.startsWith(`${r.id}:`));
-    if (!r || !r.ready || !r.success || at + EPS < r.dueAt || r.investedKg + EPS < r.requiredKg
+    if (!r || r.disposedAt != null || !r.ready || !r.success || at + EPS < r.dueAt || r.investedKg + EPS < r.requiredKg
       || r.investedMana + EPS < r.requiredMana) return false;
     const suffix = child.id.slice(r.id.length + 1), index = Number(suffix);
     if (!integer(index) || String(index) !== suffix || index >= p.offspring) return false;
+    const prior = s.details[child.id];
+    if (prior || r.emitted.includes(child.id)) return Boolean(prior && r.emitted.includes(child.id)
+      && prior.status === 'detailed' && prior.actor?.life.originalMemberId === child.life.originalMemberId && prior.groupId === parent.groupId);
     advanceLocal(s, at, () => groupRegions(s, parent.groupId));
-    const g = Demography.group(s, parent.groupId), co = g.cohorts.find(c => c.originId === parent.memberId.slice(0, parent.memberId.lastIndexOf(':')))
+    const g = Demography.group(s, parent.groupId);
+    if (!g) return false;
+    const co = g.cohorts.find(c => c.originId === parent.memberId.slice(0, parent.memberId.lastIndexOf(':')))
       || { originId: parent.memberId.slice(0, parent.memberId.lastIndexOf(':')), colonyId: a.life.colonyId };
-    const c = recordBirth(s, g, co, { nurseryId: g.breeding?.siteId || null }, child.life.role || 'individual', 1, at);
+    const nurseryId = r.externalNursery ? r.sourceNurseryId : g.breeding?.siteId || null;
+    if (r.externalNursery) {
+      const nursery = Demography.region(s, parent.regionId)?.nurseries?.find(n => n.id === nurseryId);
+      if (r.sourceRegionId !== parent.regionId || g.regionId !== parent.regionId || g.transit
+        || !nursery?.habitatSuitable || nursery.enabled === false || nursery.destroyedAt != null
+        || nursery.speciesId !== parent.speciesId || !nursery.phases.includes(monthAt(s.calendar, at).season)) return false;
+    }
+    const c = recordBirth(s, g, co, { nurseryId, ...(r.externalNursery ? { regionId: r.sourceRegionId } : {}) },
+      child.life.role || 'individual', 1, at);
     rebuild(s, at, location(g));
     const d = detail(s, g.id, c.id, c.ranges[0][0], child.id, at); if (!d) return false;
     child.life.originalMemberId = d.memberId; child.life.originalGroupId = g.id;
-    s.details[child.id].actor = child; Scheduler.noteDetail(s, child.id); return true;
+    s.details[child.id].actor = child; r.emitted.push(child.id); Scheduler.noteDetail(s, child.id); return true;
   }
   function recordDetailedLoss(s, actorId, at, cause, remainsKg) {
     const d = s.details[actorId];

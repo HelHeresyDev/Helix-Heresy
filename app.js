@@ -100711,6 +100711,8 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
   }
   function beastBehaviorContext(a, seconds = 0) {
     const c = beastBodyContext(a), saved = ensureWildernessBeasts(), map = ensureLabMap();
+    let clutchWindow, clutchCells;
+    const localNursery = (brood, parent) => NativeBeastPopulations.nurseryWindow(state.nativeBeastPopulations, parent, brood, state.clock, c.terrain);
     state.scientist.beastConditions = (state.scientist.beastConditions || []).filter(effect => effect.until > state.clock);
     const scientist = { id: 'scientist', actorKind: 'scientist', mapCell: scientistMapCell(),
       health: scientistVital('health').current, maxHealth: scientistVital('health').max, status: scientistIsDead() ? 'dead' : 'alive',
@@ -100800,18 +100802,28 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       },
       habitatSuitable: Boolean(c.terrain(a.mapCell) && !c.terrain(a.mapCell).protected), seasonSuitable: patch(a.mapCell)?.seasonSuitable !== false,
       mateReachable: (from, mate) => WildernessBeasts.distance(from.mapCell, mate.mapCell) <= 1 && signal(from, mate, 'sight'),
+      populationNurseryAccessible: (brood, parent) => {
+        clutchCells = undefined; clutchWindow = localNursery(brood, parent);
+        return Boolean(clutchWindow);
+      },
       recruit: (source, parent) => {
         saved.offspring ||= []; if (saved.offspring.some(child => child.id === source.id)) return true;
-        for (const cell of [parent.mapCell, ...WildernessBeasts.neighbors(parent.mapCell)]) {
+        const nursery = parent.life.reproduction?.externalNursery;
+        if (nursery && !clutchWindow) return false;
+        const cells = nursery ? (clutchCells ||= clutchWindow.cells()) : [parent.mapCell, ...WildernessBeasts.neighbors(parent.mapCell)];
+        let physical;
+        for (const cell of cells) {
           const child = WildernessBeasts.actor(source.speciesId, source.id, cell, parent.populationId, state.clock, source);
           child.roomId = parent.roomId; child.naturalBirth = { parentIds: source.parentIds, parentPopulationId: source.parentPopulationId, at: source.bornAt };
           child.maxHealth = Math.max(1, child.maxHealth * Math.sqrt(source.massKg / CreatureBiology.lifecycle[source.speciesId].adultKg)); child.health = child.maxHealth;
-          const medium = parent.bodyPhysics.mode;
+          const medium = nursery ? 'swimming' : parent.bodyPhysics.mode;
           if (['swimming', 'burrowing'].includes(medium)) { child.bodyPhysics.mode = medium; child.bodyPhysics.altitudeM = medium === 'swimming' ? -child.bodyPhysics.dimensions.heightM : -child.bodyPhysics.dimensions.heightM - .2; }
-          if (BeastBodies.habitatReason(child, cell, child.bodyPhysics.mode, child.bodyPhysics.altitudeM, beastBodyContext(child))) continue;
+          if (nursery) child.bodyPhysics.altitudeM = clutchWindow.altitudeM;
+          physical ||= beastBodyContext(child);
+          if (BeastBodies.habitatReason(child, cell, child.bodyPhysics.mode, child.bodyPhysics.altitudeM, physical)) continue;
           if (parent.nativePopulation) {
             const map = activeWorldRecord.generatedData.strategicMap;
-            if (!NativeBeastPopulations.birth(state.nativeBeastPopulations, map.beastHabitatSources, map, parent, child, state.clock)) continue;
+            if (!NativeBeastPopulations.birth(state.nativeBeastPopulations, map.beastHabitatSources, map, parent, child, state.clock, physical.terrain)) continue;
           }
           saved.offspring.push(child); return true;
         }
