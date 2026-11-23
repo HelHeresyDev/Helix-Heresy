@@ -686,7 +686,72 @@
     }
     return [];
   }
-  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false, burrowMouths = false, coastalSchools = false, offshoreSchool = false) {
+  const WYRM = 'beast:reef-wyrm', CATHEDRAL = 'beast:brine-cathedral';
+  function reefNeighbor(record, map, source, foodUse) {
+    const species = Ecology.BEAST_SPECIES.find(s => s.id === CATHEDRAL);
+    const wyrm = Bodies.profiles[WYRM], cathedral = Bodies.profiles[CATHEDRAL], life = Biology.lifecycle[CATHEDRAL];
+    const territories = populationsFor(map), groups = new Map(source.groups.map(g => [g.id, g]));
+    const colonies = record.groupRows.filter(row => record.populations[row[0]].speciesId === CATHEDRAL && row[3] === 1 && !row[4])
+      .map(row => {
+        const [pi, ordinal] = row, p = territories[pi];
+        return { row, mask: atob(p.territory.rangeMask), group: groups.get(`natural-group:${p.id}:${ordinal}`) };
+      }).filter(({ group }) => group.resources.foodKg === 'planktonKg' && !group.instinct);
+    const regions = new Map(source.regions.map(r => [r.id, r]));
+    const patchIndex = new Map(record.patchRows.flatMap(([cell, kind], i) => kind === 3 ? [[cell, i]] : []));
+    for (const [regionId] of record.backgroundWildlife.reefSchoolRows || []) {
+      const r = regions.get(regionId), cell = r.source.cellIndex, i = patchIndex.get(cell);
+      const residents = source.groups.filter(g => g.regionId === r.id);
+      if (!residents.length || residents.some(g => g.speciesId !== WYRM)
+        || !usableHabitat(species, r) || r.oxygen === false || !(r.stocks.livingReefKg > 0)
+        || ![WYRM, CATHEDRAL].every(id => {
+          const p = Biology.lifecycle[id];
+          return r.seasons.every(s => s.temperatureC >= p.minC && s.temperatureC <= p.maxC);
+        })) continue;
+      const colony = colonies.find(({ mask }) => mask.charCodeAt(cell >> 3) & (1 << (cell & 7)));
+      if (!colony) continue;
+      const pool = r.wildlife?.pools || [], fish = pool.filter(p => p.habitatPatch === 'reef-shelf');
+      const feedingKg = fish.reduce((n, p) => n + p.originalMassKg * .6, 0);
+      const adults = residents.reduce((n, g) => n + g.cohorts.filter(c => c.ageDays >= Biology.lifecycle[WYRM].adultDays)
+        .reduce((sum, c) => sum + c.count, 0), 0);
+      // Require the existing school to contain at least one basal day of
+      // adult prey. Plankton renewal must fund the Cathedral after the shared
+      // allocation and existing fish upkeep, without drawing on first fill.
+      const fishUse = pool.filter(p => p.foodKey === 'planktonKg')
+        .reduce((n, p) => n + p.originalCount * Wildlife.profile(p).foodDay, 0);
+      if (!adults || feedingKg < adults * Biology.lifecycle[WYRM].foodKgDay
+        || Math.min(...r.seasons.map(s => s.renewal.planktonKg)) - fishUse - (foodUse.get(`${i}:planktonKg`) || 0) < life.foodKgDay) continue;
+      const site = r.ecology.workSites.find(s => s.action === 'cultivateReef');
+      const coast = Foreign.coastReference(map, cell, r.areaHa);
+      if (!site || !coast || !(site.footprintHa > 0)) continue;
+      const reefRadius = Math.sqrt(site.footprintHa * 10000 / Math.PI);
+      const withinReef = p => Math.hypot(p.eastM - site.position.eastM, p.northM - site.position.northM) <= reefRadius;
+      const range = Math.sqrt(r.areaHa * 10000 / Math.PI);
+      const fitsWater = (p, b) => -p.altitudeM <= r.depthM
+        && [0, b.lengthM].every(x => [0, b.widthM].every(y => {
+          const east = p.eastM + x, north = p.northM + y;
+          return Math.hypot(east, north) <= range && Foreign.relative(coast, east, north)[0] >= 0;
+        }));
+      // The occupied nursery's initial adult front begins at its workface;
+      // both unturned bodies use the same point geometry as regional combat.
+      const front = { eastM: Math.round(site.position.eastM), northM: Math.round(site.position.northM), altitudeM: site.position.altitudeM };
+      const mouth = Bodies.partPoint(front, wyrm, 0, Bodies.reefWyrmMouth);
+      if (!fitsWater(front, wyrm) || !withinReef(mouth) || mouth.altitudeM >= 0) continue;
+      for (const side of [1, -1]) {
+        const rim = Bodies.cathedralTowerPoints[side === 1 ? 1 : 3];
+        const point = { eastM: Math.round(mouth.eastM - cathedral.lengthM * rim[0]),
+          northM: front.northM + (side === 1 ? wyrm.widthM + 1 : -cathedral.widthM - 1),
+          // Surface drift can expose the crown, not its feeding towers.
+          altitudeM: -cathedral.heightM * .85 };
+        const tower = Bodies.partPoint(point, cathedral, 0, rim);
+        if (fitsWater(point, cathedral) && withinReef(tower) && tower.altitudeM < 0
+          && Math.hypot(mouth.eastM - tower.eastM, mouth.northM - tower.northM, mouth.altitudeM - tower.altitudeM) <= wyrm.reachM) {
+          return { row: colony.row, i, regionId, position: { regionId, ...point } };
+        }
+      }
+    }
+    return null;
+  }
+  function candidate(seed, map, patchRows, calibration, physical = true, wildlife = false, physicalPlacement = false, habitatAccess = false, windTransport = false, lanternMoisture = false, wildlifeDistribution = false, wildlifeCarcasses = false, establishedHabitats = false, wetlandDrainage = false, huntingHabitatAccess = false, catchmentDrainage = false, lanternHabitatAccess = false, windShelters = false, seasonalWind = false, coastalReefs = false, burrowMouths = false, coastalSchools = false, offshoreSchool = false, reefOpposition = false) {
     const calendar = { epochAt: 0, monthDays: Local.PHASES.map(() => Local.PHASE_DAYS) };
     const patches = patchRows.map(row => expandPatch(map, row, calendar, physical)), groupRows = [], populations = [], unlocated = [];
     const worldPopulations = populationsFor(map), foodUse = new Map(), feedingRows = [];
@@ -823,17 +888,21 @@
       });
     }
     if (catchmentDrainage) record.catchmentDrainage = true;
-    const expanded = expand(record, map, { physical, raw: true });
+    let expanded = expand(record, map, { physical, raw: true });
+    const bind = (coastalSites, reefNeighbors) => {
+      record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats,
+        drainage: wetlandDrainage, catchmentDrainage, coastalSites, reefNeighbors });
+      Bindings.apply(expanded, record.physicalBinding, map);
+    };
+    let coastalSites;
     let reefSchools;
     if (physical) {
       const regionByGroup = new Map(expanded.groups.map(g => [g.id, g.regionId]));
-      const coastalSites = new Map((record.shoreReefOrigins || []).map(([pi, ordinal, p]) => {
+      coastalSites = new Map((record.shoreReefOrigins || []).map(([pi, ordinal, p]) => {
         const regionId = regionByGroup.get(`natural-group:${populations[pi].populationId}:${ordinal}`);
         return [regionId, { regionId, eastM: p.eastM, northM: p.northM, altitudeM: -p.depthM }];
       }));
-      record.physicalBinding = Bindings.allocate(expanded, map, { positions: physicalPlacement, established: establishedHabitats,
-        drainage: wetlandDrainage, catchmentDrainage, coastalSites });
-      Bindings.apply(expanded, record.physicalBinding, map);
+      bind(coastalSites);
       if (coastalSchools && establishedHabitats && coastalSites.size) {
         const regions = new Map(expanded.regions.map(r => [r.id, r]));
         reefSchools = record.physicalBinding.workSites.flatMap(({ regionId, site: work }) => {
@@ -848,13 +917,27 @@
         });
       }
     }
-    if (wildlife) {
+    const allocateWildlife = () => {
       record.backgroundWildlife = Wildlife.allocate(expanded, seed, { distributed: wildlifeDistribution, carcassBatches: wildlifeCarcasses, reefSchools });
       if (offshoreSchool && wildlifeDistribution) {
         const rows = offshoreSchoolRows(expanded, map, record.backgroundWildlife);
         if (rows.length) record.backgroundWildlife.offshoreSchoolRows = rows;
       }
       Wildlife.apply(expanded, record.backgroundWildlife);
+    };
+    if (wildlife) {
+      allocateWildlife();
+      if (reefOpposition && record.backgroundWildlife.reefSchoolRows?.length) {
+        const pair = reefNeighbor(record, map, expanded, foodUse);
+        if (pair) {
+          const [pi, ordinal] = pair.row;
+          pair.row[2] = pair.i;
+          record.reefOppositionRows = [[pi, ordinal, pair.position]];
+          expanded = expand(record, map, { physical, raw: true });
+          bind(coastalSites, new Map([[pair.regionId, pair.position]]));
+          allocateWildlife();
+        }
+      }
     }
     const assessment = forecast(expanded, map);
     for (const p of populations) {
@@ -907,7 +990,7 @@
         best.windTransport === true, best.lanternMoisture === true, best.wildlifeDistribution === true,
         best.wildlifeCarcasses === true, best.establishedHabitats === true, best.wetlandDrainage === true, Boolean(hunting), catchment, Boolean(lanternDrift),
         Boolean(lanternDrift && options.windShelters !== false), seasonalWind, coastalReefs, burrowMouths,
-        coastalReefs && best.wildlifeDistribution === true && options.coastalSchools !== false, offshoreSchool);
+        coastalReefs && best.wildlifeDistribution === true && options.coastalSchools !== false, offshoreSchool, options.reefOpposition !== false);
     return best;
   }
   function validate(record, map, seed = record?.seed) {
@@ -921,7 +1004,7 @@
     for (let i = 0; i < topology.cellCount; i++) patchRows.push(...patchesForCell(map, i, topology, record.physicalPlacement === true));
     const expected = candidate(record.seed, map, patchRows, record.calibration, Boolean(record.physicalBinding), Boolean(record.backgroundWildlife), record.physicalPlacement === true,
       record.habitatAccess === true, record.windTransport === true, record.lanternMoisture === true, record.wildlifeDistribution === true, record.wildlifeCarcasses === true, record.establishedHabitats === true, record.wetlandDrainage === true, record.huntingHabitatAccess === true, record.catchmentDrainage === true, Array.isArray(record.lanternDriftRows), Array.isArray(record.windShelterRows), Array.isArray(record.seasonalWindRows), Array.isArray(record.shoreReefOrigins), Array.isArray(record.burrowMouthOrigins), Array.isArray(record.backgroundWildlife?.reefSchoolRows),
-      Array.isArray(record.backgroundWildlife?.offshoreSchoolRows));
+      Array.isArray(record.backgroundWildlife?.offshoreSchoolRows), Array.isArray(record.reefOppositionRows));
     if (record.sourceDigest === legacyDigest) expected.sourceDigest = record.sourceDigest;
     const physical = value => { const result = copy(value); delete result.id; delete result.assessment; delete result.groupRows; return result; };
     if (World.stableHash(physical(expected)) !== World.stableHash(physical(record)) && !samePhysical(physical(expected), physical(record)))

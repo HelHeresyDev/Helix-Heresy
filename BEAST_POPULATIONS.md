@@ -1109,10 +1109,34 @@ The focused control uses one supplied reef and two original bodies in valid
 water geometry. It verifies a wound on only the reached tower, less actual
 plankton debited and reduced Cathedral shelter relative to the intact control,
 and no bite in blocked, distant, deep, nonfeeding or reef-loss controls.
-Initial placement in `native-encounters` (refinement 2), `ocean` (refinement 1)
-and `source-small` (refinement 2) put no Wyrm and Cathedral in the same water
-account. Natural overlap, season-long opposition and open-water patrols
-remain unverified; no source placement was forced to meet the test.
+Before the founding preference below, `native-encounters` (refinement 2),
+`ocean` (refinement 1) and `source-small` (refinement 2) put no Wyrm and
+Cathedral in the same water account.
+
+#### Opposition on an original generated shelf
+
+New-world generation can place at most one already counted Cathedral at the
+edge of a mapped Wyrm nursery with an existing reef fish school. The site must
+be in the Cathedral's original range, suit both bodies across the seasons,
+and provide real shoreline clearance. The existing fish must cover at least
+one basal day for the Wyrm adults, and existing plankton renewal must cover
+the Cathedral after the initial shared plankton budget and fish upkeep. This
+is an initial supply check, not a promise that a family can catch enough prey
+all year. A submerged feeding tower can sit inside the nursery's footprint;
+the Cathedral's crown can breach the surface. No reef substrate, animals,
+water, or prey are added to make a candidate fit. Worlds with no suitable
+site keep the ordinary placement, and unmarked archives are not reassigned.
+
+In the generated `native-encounters` shelf `habitat:88:waterColumn`, the
+original Cathedral fed before the original Wyrm struck on day four. The bite
+took 55.36 points from tower 2 and left the other towers intact. In the
+following half day it drew 17,231.92 kg of plankton versus 20,000 kg in the
+control, which placed the same Cathedral and workface out of reach in the
+same water. Both branches isolated the region from travel. The control had
+no strike, and the wounded Cathedral also provided less shelter. A continued
+import made while the bite was pending reproduced the same injury and intake.
+This verifies a naturally sourced local opposition case, not seasonal
+viability, open-water patrols or whole-package acceptance.
 
 ## Bounded native encounter adapter
 

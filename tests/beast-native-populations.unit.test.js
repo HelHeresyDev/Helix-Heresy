@@ -507,8 +507,9 @@ test('a mapped shoreline preserves its original rotated offshore body, finite sa
   assert.deepEqual(again.nativePopulation.sourcePosition, originalActor.nativePopulation.sourcePosition);
 });
 test('shoreline reef placement preserves archived habitat records, population counts, and resource budgets', () => {
-  const { map } = original(), active = map.beastHabitatSources;
-  const archived = S.generate(active.seed, map, { coastalReefs: false });
+  const { map } = original(), seed = map.beastHabitatSources.seed;
+  const active = S.generate(seed, map, { reefOpposition: false });
+  const archived = S.generate(seed, map, { coastalReefs: false, reefOpposition: false });
   assert.equal(archived.shoreReefOrigins, undefined);
   assert.ok(active.shoreReefOrigins.length > 0);
   const before = JSON.stringify(archived);
@@ -520,8 +521,9 @@ test('shoreline reef placement preserves archived habitat records, population co
   assert.deepEqual(archived.physicalBinding.capacities, active.physicalBinding.capacities);
 });
 test('coastal reef schools partition the original fish and capacity without retrofitting an archive', () => {
-  const { map } = original(), active = map.beastHabitatSources, World = require('../strategic-world');
-  const Foreign = require('../foreign-wilderness'), archived = S.generate(active.seed, map, { coastalSchools: false });
+  const { map } = original(), seed = map.beastHabitatSources.seed, World = require('../strategic-world');
+  const active = S.generate(seed, map, { reefOpposition: false });
+  const Foreign = require('../foreign-wilderness'), archived = S.generate(seed, map, { coastalSchools: false, reefOpposition: false });
   const before = JSON.stringify(archived);
   assert.equal(S.validate(archived, map), archived);
   assert.equal(S.validate(active, map), active);
@@ -532,7 +534,7 @@ test('coastal reef schools partition the original fish and capacity without retr
   assert.deepEqual(active.groupRows, archived.groupRows);
   assert.deepEqual(active.populations, archived.populations);
   const current = S.expand(active, map), legacy = S.expand(archived, map);
-  const deferred = S.runtimeSource(active, map, { deferUnused: true });
+  const deferred = S.runtimeSource(active, { ...map, beastHabitatSources: active }, { deferUnused: true });
   const [regionId, site] = active.backgroundWildlife.reefSchoolRows[0];
   const r = current.regions.find(r => r.id === regionId), old = legacy.regions.find(r => r.id === regionId);
   const coast = Foreign.coastReference(map, r.source.cellIndex, r.areaHa);

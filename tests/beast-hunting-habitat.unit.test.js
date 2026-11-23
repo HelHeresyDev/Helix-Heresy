@@ -24,26 +24,28 @@ test('unreachable herds, wrong media and too-large prey cannot support an initia
     pool => { pool.guild = 'fish'; }, pool => { pool.sizeClass = 'large'; }]) assert.equal(estimate(change).foodKgDay, 0);
 });
 let cached;
+const priorOptions = { huntingHabitatAccess: false, reefOpposition: false };
 function fixture() {
   if (!cached) {
     const world = L.createWorld({ id: 'hunting-habitat-control', worldSeed: seed, createdAt: 'test', generationVersion: 8,
       creationSettings: { strategicMap: { refinementLevel: 2 } } });
     const map = world.generatedData.strategicMap, current = map.beastHabitatSources;
-    cached = { world, map, current, prior: S.generate(seed, map, { huntingHabitatAccess: false }) };
+    cached = { world, map, current, prior: S.generate(seed, map, priorOptions) };
   }
   return cached;
 }
 test('new hunting placement preserves calibration, original populations, wildlife and old archived placement', () => {
   const { world, map, current, prior } = fixture(), old = JSON.stringify(prior), canonical = JSON.stringify(world);
   assert.equal(current.huntingHabitatAccess, true); assert.equal(prior.huntingHabitatAccess, undefined);
-  // This is a newly generated non-hunting control, including current drainage
-  // rules, not a frozen pre-drainage historical source fixture.
-  assert.equal(prior.id, S.generate(seed, map, { huntingHabitatAccess: false }).id);
+  // No paired reef placement in either branch: a change in Wyrm placement
+  // must not trigger a separate Cathedral move in the non-hunting control.
+  assert.equal(current.reefOppositionRows, undefined);
+  assert.equal(prior.id, S.generate(seed, map, priorOptions).id);
   assert.equal(current.calibration, prior.calibration);
   assert.deepEqual(current.populations, prior.populations); assert.deepEqual(current.unlocated, prior.unlocated);
-  // A different coastal Wyrm placement may settle fish at a different
-  // original reef nursery, but cannot change the archived prey allocation.
-  const foundingWildlife = ({ reefSchoolRows, ...budgets }) => budgets;
+  // Different initial Wyrm and Bell homes can move the local school
+  // partitions without changing the original regional fish allocation.
+  const foundingWildlife = ({ reefSchoolRows, offshoreSchoolRows, ...budgets }) => budgets;
   assert.deepEqual(foundingWildlife(current.backgroundWildlife), foundingWildlife(prior.backgroundWildlife));
   const nextGroups = S.expand(current, map).groups, oldGroups = S.expand(prior, map).groups;
   assert.equal(new Set(nextGroups.map(g => g.speciesId)).size, 24);

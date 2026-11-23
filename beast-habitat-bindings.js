@@ -159,7 +159,7 @@
     }
     binding.watercourses = [...courseByRegion].map(([regionId, course]) => ({ regionId, course }));
     binding.environments = source.regions.map(r => ({ regionId: r.id, ...environment(r, map) }));
-    if (options.established) establish(source, binding, map, options.coastalSites);
+    if (options.established) establish(source, binding, map, options.coastalSites, options.reefNeighbors);
     if (options.drainage) {
       for (const row of binding.watercourses) {
         const r = regions.get(row.regionId), target = regions.get(row.course.downstreamRegionId);
@@ -216,7 +216,7 @@
       upstream.get(down).push(id);
     }
   }
-  function establish(source, binding, map, coastalSites) {
+  function establish(source, binding, map, coastalSites, reefNeighbors) {
     binding.establishedHabitats = true;
     binding.availability = []; binding.initialWork = []; binding.initialOutputs = [];
     const groups = new Map(source.groups.map(g => [g.id, g])), regions = new Map(source.regions.map(r => [r.id, r]));
@@ -243,6 +243,7 @@
       let point = { regionId: r.id, eastM: Math.cos(angle) * distance, northM: Math.sin(angle) * distance,
         altitudeM: ['waterColumn', 'wetland'].includes(r.kind) ? -Math.min(r.depthM - .1, body.heightM * 1.2) : 0 };
       if (action === 'cultivateReef' && coastalSites?.has(r.id)) point = copy(coastalSites.get(r.id));
+      if (action === 'filterPlankton' && reefNeighbors?.has(r.id)) point = copy(reefNeighbors.get(r.id));
       const course = binding.watercourses.find(c => c.regionId === r.id);
       if (action === 'buildDam' && course) {
         const edge = r.edges.find(e => e.id === course.course.downstreamRegionId), exit = edge?.routeFrames?.exit || edge?.departurePosition;

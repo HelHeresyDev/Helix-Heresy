@@ -258,11 +258,9 @@
   }
   const actorPoint = a => ({ eastM: a.mapCell.x, northM: a.mapCell.y, altitudeM: Bodies.height(a) });
   const separation = (a, b) => Math.hypot(a.eastM - b.eastM, a.northM - b.northM, a.altitudeM - b.altitudeM);
-  function bodyPoint(a, length, width, height, anchor = actorPoint(a)) {
+  function bodyPoint(a, fraction, anchor = actorPoint(a)) {
     const b = a.bodyPhysics, d = b.dimensions;
-    return { eastM: anchor.eastM + (b.heading ? width * d.widthM : length * d.lengthM),
-      northM: anchor.northM + (b.heading ? length * d.lengthM : width * d.widthM),
-      altitudeM: anchor.altitudeM + height * d.heightM };
+    return Bodies.partPoint(anchor, d, b.heading, fraction);
   }
   function reefStrikeLine(r, g, wyrm, cathedral, ctx, { signal, part } = {}) {
     if (r.kind !== 'waterColumn' || !(r.stocks.livingReefKg > EPS) || g.will === false || g.willing === false
@@ -278,22 +276,21 @@
     const radius = Math.sqrt(site.footprintHa * 10000 / Math.PI), water = ctx.terrain().waterDepthM;
     const inReef = p => Math.hypot(p.eastM - site.position.eastM, p.northM - site.position.northM) <= radius;
     const submerged = p => p.altitudeM < 0 && p.altitudeM >= -water;
-    const from = bodyPoint(wyrm, 1, .5, .5);
+    const from = bodyPoint(wyrm, Bodies.reefWyrmMouth);
     if (!inReef(from) || !submerged(from)) return null;
     // Four separate exposed modules around the existing whole body's rim.
     // Both the bite and the observation use physical points, not
     // the distance to the Cathedral's regional anchor or a random body part.
-    const positions = [[.03, .5], [.5, .03], [.97, .5], [.5, .97]];
     const projected = (a, p) => ({ ...a, mapCell: { x: p.eastM, y: p.northM, z: a.mapCell.z },
       bodyPhysics: { ...a.bodyPhysics, altitudeM: p.altitudeM, motion: null, airOffset: null } });
     return reefTowerParts.flatMap((tower, i) => {
       if (!(cathedral.bodyPhysics.parts[tower] > 0) || part && tower !== part) return [];
-      const [length, width] = positions[i], p = bodyPoint(cathedral, length, width, .7);
+      const fraction = Bodies.cathedralTowerPoints[i], p = bodyPoint(cathedral, fraction);
       const distance = separation(from, p);
       if (distance > Bodies.profiles[REEF_WYRM].reachM || !inReef(p) || !submerged(p) || blocked(r, from, p)) return [];
       // Today's pulse may only respond to the recorded point of actual
       // intake. A change of position cannot serve as a new feeding cue.
-      const cue = signal ? bodyPoint(cathedral, length, width, .7, signal) : p;
+      const cue = signal ? bodyPoint(cathedral, fraction, signal) : p;
       if (!inReef(cue) || !submerged(cue) || blocked(r, from, cue)) return [];
       const seen = projected(cathedral, cue), observer = projected(wyrm, from);
       if (!['sight', 'hearing', 'scent'].some(channel => Bodies.perceive(observer, seen, channel, {

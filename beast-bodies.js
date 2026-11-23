@@ -73,6 +73,13 @@
       minWaterDepthM: Math.max(.1, heightM), reachM: Math.max(.25, Math.min(6, lengthM / 3)),
       depthToleranceM: suffix === 'abyssal-bell' ? 12000 : suffix === 'frostwake-leviathan' ? 4000 : suffix === 'reef-wyrm' ? 200 : suffix === 'brine-cathedral' ? 100 : 30 })];
   }));
+  const reefWyrmMouth = Object.freeze([1, .5, .5]);
+  const cathedralTowerPoints = Object.freeze([[.03, .5, .7], [.5, .03, .7], [.97, .5, .7], [.5, .97, .7]].map(Object.freeze));
+  function partPoint(anchor, d, heading, [length, width, height]) {
+    return { eastM: anchor.eastM + (heading ? width * d.widthM : length * d.lengthM),
+      northM: anchor.northM + (heading ? length * d.lengthM : width * d.widthM),
+      altitudeM: anchor.altitudeM + height * d.heightM };
+  }
   function attach(a, at = 0) {
     const p = profiles[a?.speciesId];
     if (!p || a.bodyPhysics) return a;
@@ -514,5 +521,5 @@
       heading: a.bodyPhysics.heading || 0, turning: Boolean(a.bodyPhysics.turn),
       motion: a.bodyPhysics.motion ? { from: copy(a.bodyPhysics.motion.from), to: copy(a.bodyPhysics.motion.to), fraction: a.bodyPhysics.motion.progressM / a.bodyPhysics.motion.distanceM } : null };
   }
-  return { profiles, anatomy, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position, localAir, airMonth };
+  return { profiles, anatomy, reefWyrmMouth, cathedralTowerPoints, partPoint, attach, valid, height, footprint, cells, occupied, wounded, capable, habitatReason, request, turn, transition, dive, breakIce, damagePart, advance, perceive, observed, key, flowVelocity, position, localAir, airMonth };
 });

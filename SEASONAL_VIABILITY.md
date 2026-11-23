@@ -94,6 +94,11 @@ deaths. There were no habitat-floor breaches, completed-cycle maintenance
 deficits, exhausted regions, flood erosion or original-beast contacts. Zero
 contacts leave natural opposition unverified, not proven absent in every world.
 
+A [later generated-shelf replay](BEAST_POPULATIONS.md#opposition-on-an-original-generated-shelf)
+does observe one Wyrm wounding an original Cathedral's feeding tower on a
+different source, followed by less measured filtration. This is local
+opposition evidence, not a new integrated viability result.
+
 | Species with scarcity losses | Living / original | Starvation / dehydration | Foraged tissue (kg) |
 | --- | ---: | ---: | ---: |
 | Carrion Lantern | 1 / 120 | 96 / 19 | 35.63 |
