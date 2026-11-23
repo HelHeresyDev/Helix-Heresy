@@ -16,6 +16,7 @@
   const validVector = v => v && channels.every(k => nonnegative(v[k])) && Object.keys(v).every(k => channels.includes(k));
   const fractions = v => v && Object.values(v).every(n => nonnegative(n) && n <= 1);
   const GRAZER = 'beast:thunderback-grazer';
+  const actionBySpecies = new Map(Object.entries(Work.actions).map(([action, species]) => [species, action]));
   const renewable = ['forageKg', 'organicKg', 'detritusKg', 'planktonKg', 'waterL', 'excessMana'];
   function validate(r) {
     const e = r.ecology; if (!e) return;
@@ -268,11 +269,15 @@
     if (!event) { event = { id, firstAt: at, lastAt: at, condition: { ...r.condition }, damageAfter: vector(), ...detail, count: 0 }; a.sourceLosses.push(event); }
     event.lastAt = at; event.count += detail.count || 1;
   }
-  function lostContributor(s, g, c, n, at, cause, ref) {
-    const regionId = Journeys.location(g);
-    if (c.ecologyHistory?.[regionId] > EPS) loss(Demography.region(s, regionId),
+  function lostContributor(s, regionId, c, n, at, cause, ref) {
+    if (!(c.ecologyHistory?.[regionId] > EPS)) return;
+    // Work history is per original and region. Its supported action follows
+    // the species, even when that original no longer holds a work assignment.
+    const spec = Work.spec(actionBySpecies.get(c.speciesId));
+    if (!spec) return;
+    loss(Demography.region(s, regionId),
       `contributor:${c.originId}:${regionId}:${cause}`, at, { kind: 'contributor', originId: c.originId, count: n, cause, ref,
-        channels: Work.spec(g.ecology.action).channels.filter(k => Data.rates[c.speciesId].nurturing[channels.indexOf(k)] > 0) });
+        channels: spec.channels.filter(k => Data.rates[c.speciesId].nurturing[channels.indexOf(k)] > 0) });
   }
   function destroySite(s, regionId, siteId, at, cause) {
     const r = Demography.region(s, regionId), site = r?.ecology?.renewalSites.find(site => site.id === siteId);
@@ -351,15 +356,17 @@
           || e.exhaustedAt > at + EPS
           || e.recoveredAt != null && (!nonnegative(e.recoveredAt) || e.recoveredAt < e.exhaustedAt))) return false;
     }
+    const validWorkHistory = history => history == null || (typeof history === 'object' && !Array.isArray(history)
+      && Object.entries(history).every(([id, n]) => nonnegative(n) && Demography.region(s, id)?.ecology));
     for (const g of s.groups) {
       if (g.ecology) {
         const p = g.ecologicalPlan;
         if (!p || typeof p.requested !== 'boolean' || p.monthIndex !== s.plans.at(-1).index
           || ['action', 'regionId', 'siteId', 'effortFraction'].some(k => p[k] !== g.ecology[k])) return false;
       }
-      for (const c of g.cohorts) if (c.ecologyHistory
-        && Object.entries(c.ecologyHistory).some(([id, n]) => !nonnegative(n) || !Demography.region(s, id)?.ecology)) return false;
+      for (const c of g.cohorts) if (!validWorkHistory(c.ecologyHistory)) return false;
     }
+    for (const d of Object.values(s.details)) if (!validWorkHistory(d.returnCohort?.ecologyHistory)) return false;
     for (const q of s.extraRates || []) if (q.kind === 'ecology') {
       const g = Demography.group(s, q.groupId), spec = Work.spec(q.action), plan = g?.ecologicalPlan;
       const site = g && Demography.region(s, Journeys.location(g))?.ecology?.workSites.find(site => site.id === q.siteId);

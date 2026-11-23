@@ -581,7 +581,7 @@
     const scarcity = ['starvation', 'dehydration', 'mineralDeficiency'].includes(cause) ? scarcityContext(s, g, c, at) : null;
     Care.cancelAffected(g, c, at);
     Foodweb.cancel(s, g.id, c.id, ranges, at);
-    Ecology.lostContributor(s, g, c, n, at, cause, `loss-batch:${c.originId}:${location(g)}:${cause}`);
+    Ecology.lostContributor(s, location(g), c, n, at, cause, `loss-batch:${c.originId}:${location(g)}:${cause}`);
     c.ranges = Demography.subtract(c.ranges, ranges);
     s.lossBatches ||= [];
     const batchId = `loss-batch:${c.originId}:${location(g)}:${cause}`;
@@ -626,7 +626,7 @@
     if (!remove(c, ordinal)) return false;
     Care.cancelAffected(g, c, at);
     Foodweb.cancel(s, g.id, c.id, [[ordinal, ordinal + 1]], at);
-    Ecology.lostContributor(s, g, c, 1, at, cause, cohortKey(c, ordinal));
+    Ecology.lostContributor(s, location(g), c, 1, at, cause, cohortKey(c, ordinal));
     const loss = { memberId: cohortKey(c, ordinal), populationId: g.populationId, speciesId: g.speciesId,
       groupId: g.id, originId: c.originId || c.id, ordinal, regionId: location(g), cause, at, massKg: c.massKg };
     if (scarcity) loss.context = scarcity;
@@ -827,7 +827,7 @@
     if (!c.ranges.some(([lo, hi]) => ordinal >= lo && ordinal < hi)) { rebuild(s, at, location(g)); return null; }
     // Save only the original metadata needed to resume the same work/care
     // stream. Do not copy the entire cohort's membership or the personal body.
-    const returnCohort = s.nativeEncounters || c.personalActor ? copy(Object.fromEntries(
+    const returnCohort = s.nativeEncounters || c.personalActor || c.ecologyHistory ? copy(Object.fromEntries(
       ['sex', 'deathSerial', 'deathExposure', 'deathThreshold', 'contactSplit', 'nurseryId', 'dependency',
         'parentalLedger', 'feedingTowers', 'foraging', 'ecologyHistory', 'unmet', 'firstScarcity', 'windCrossings'].map(key => [key, c[key]]))) : null;
     const returnGroup = returnCohort ? copy({ ...g, cohorts: [] }) : null;
@@ -1071,9 +1071,14 @@
     const d = s.details[actorId];
     if (!d || d.status !== 'detailed' || !nonnegative(remainsKg) || !nonnegative(at) || at < s.clock) return false;
     advanceLocal(s, at, [d.regionId]); d.status = 'dead'; d.diedAt = at; d.cause = cause;
+    const originId = d.memberId.slice(0, d.memberId.lastIndexOf(':'));
     s.losses.push({ memberId: d.memberId, populationId: d.populationId, speciesId: d.speciesId,
-      groupId: d.groupId, originId: d.memberId.slice(0, d.memberId.lastIndexOf(':')), ordinal: d.ordinal,
+      groupId: d.groupId, originId, ordinal: d.ordinal,
       regionId: d.regionId, cause, at, massKg: remainsKg, detailOwner: actorId });
+    // The detailed body can outstay the group that left it here. Use the
+    // claim's physical region and only the work this original brought in.
+    Ecology.lostContributor(s, d.regionId, { originId, speciesId: d.speciesId, ecologyHistory: d.returnCohort?.ecologyHistory },
+      1, at, cause, d.memberId);
     // The physical corpse still belongs to its detailed owner; do not copy it
     // into regional food stocks or apply another background death.
     record(s, 'detailedLoss', at, { actorId, memberId: d.memberId, cause }); return true;

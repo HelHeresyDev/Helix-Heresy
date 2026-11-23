@@ -347,6 +347,30 @@ test('an absent native corpse decays once without a second death, refill or dupl
   assert.ok(!N.materialize(state, record, map, { ...site, id: 'overlap' }, { ...ctx, at: P.DAY }).some(other => other.id === a.id));
   assert.ok(P.normalize(s));
 });
+test('a native Ironroot death retains its generated workface loss through withdrawal and revisit', () => {
+  const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
+  const { site, ctx, r, c } = context(s, 'beast:ironroot-colossus'), at = 3600;
+  assert.ok(P.settleRegions(s, at, [r.id]));
+  assert.ok(c.ecologyHistory[r.id] > 0, 'the original worked with actual generated supplies');
+  const [actor] = N.materialize(state, record, map, site, { ...ctx, at }), member = actor.life.originalMemberId;
+  assert.equal(s.details[actor.id].returnCohort.ecologyHistory[r.id], c.ecologyHistory[r.id]);
+  Object.assign(actor, { status: 'dead', health: 0, diedAt: at });
+  assert.ok(N.sync(state, record, map, [actor], at, true, { activeSiteIds: new Set() }));
+  const loss = r.ecologicalAccount.sourceLosses.find(l => l.ref === member);
+  assert.equal(loss.firstAt, at); assert.equal(loss.count, 1); assert.ok(loss.channels.includes('soilCover'));
+  assert.equal(r.exhausted, false);
+  assert.equal(Object.values(r.remainsBatches).filter(b => b.sourceKey === member).length, 1);
+
+  N.pack(state, record, map);
+  const saved = copy(state), reload = N.open(saved, record, map);
+  const revisited = N.materialize(saved, record, map, site, { ...ctx, at }).find(a => a.id === actor.id);
+  assert.equal(revisited.status, 'dead'); assert.equal(revisited.life.originalMemberId, member);
+  assert.ok(N.sync(saved, record, map, [revisited], at));
+  assert.equal(reload.losses.filter(l => l.memberId === member).length, 1);
+  const rr = reload.regions.find(region => region.id === r.id);
+  assert.deepEqual(rr.ecologicalAccount.sourceLosses.filter(l => l.ref === member), [loss]);
+  assert.ok(P.normalize(reload, binding));
+});
 test('source positions and actual footprint reject remote, undersized and wrong-medium encounters', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding), s = N.open(state, record, map);
   const { site, ctx } = context(s, 'beast:brine-cathedral');

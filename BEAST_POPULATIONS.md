@@ -263,11 +263,9 @@ winter, an unrelated source loss or missing facts cannot certify exhaustion.
 
 Recovery needs actual surviving/returning original support, usable substrate,
 paid inputs and elapsed work above the applicable floors. A source loss does
-not spawn a rescuer, restore destroyed material or teleport a tree. Detailed
-native-body losses and pre-city histories are not automatically projected back
-onto regions from an old location snapshot; that native provenance remains D
-integration work. The source-proposal feasibility assessor is unchanged and
-still rejects unaccepted generated allocations.
+not spawn a rescuer, restore destroyed material or teleport a tree. The
+source-proposal feasibility assessor still rejects unaccepted generated
+allocations; no pre-city losses are inferred from old location snapshots.
 
 The prepared endpoint uses a 10-hectare **maintenance workface**, not a complete
 species territory or a healthy generated region. One original Ironroot supports
@@ -286,6 +284,24 @@ retained three cohorts and **372–375 cohort intervals**, about 14–18 KB
 of serialized state and roughly 11–16 ms locally. Timings are illustrative, not a
 test threshold. More regions, independent groups and detailed bodies cost more;
 this is not a full-game benchmark or ecological balance certificate.
+
+### Local deaths of original habitat contributors
+
+An original drawn into a local encounter carries its paid regional work
+history. A death while that original is locally owned uses the same loss
+account as a regional death. Only work actually performed in the physical
+region of death qualifies, even if the original group has since moved.
+Opening an encounter, a living retreat, corpse custody changes, and a
+reload are not additional losses. An older record without paid work history
+does not acquire it on load, and already-settled deaths are not backfilled.
+
+On the prepared 10-hectare workface, a day-10 Ironroot death left soil cover
+unchanged at first. With the same continued grazing, the local and regional
+deaths both reached the exhaustion threshold on day 185 and ended day 200
+at 24 soil-cover points. The generated-world native test also retained one
+paid contributor loss after the corpse returned to the region and was
+revisited. Work in another region, unperformed work, and a loss followed by
+no damaging pressure did not classify the workface as exhausted.
 
 ### Existing work adapters
 
