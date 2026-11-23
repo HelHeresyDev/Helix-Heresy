@@ -13,6 +13,10 @@
 })(globalThis, function (Sources, P, Food, Bodies, Journeys, Carcasses, Foreign, World) {
   'use strict';
   const copy = x => JSON.parse(JSON.stringify(x)), cache = new WeakMap();
+  const coverValue = n => Number.isFinite(n) && n >= 0 && n <= 100;
+  const clampCover = n => Math.max(0, Math.min(100, n));
+  const regionalCover = r => r?.floor && ['surface', 'shore'].includes(r.kind) && coverValue(r.condition?.soilCover)
+    ? r.condition.soilCover : undefined;
   const capacity = record => ({ supported: Array.isArray(record?.patchRows) && Boolean(record.physicalBinding),
     patches: record?.patchRows?.length || 0, execution: 'deferredIndependentRegions' });
   function snapshot(value) {
@@ -65,12 +69,16 @@
       throw Error('Invalid native seasonal wind');
     for (const p of Object.values(result.parcels)) if (!p?.sourceRegionId || !(p.areaHa > 0) || !p.resources
       || !Object.values(p.resources).every(n => Number.isFinite(n) && n >= 0)
+      || p.soilCoverHistory != null && (!p.floor || !coverValue(p.condition?.soilCover)
+        || !coverValue(p.soilCoverHistory.baseline) || !coverValue(p.soilCoverHistory.ambient)
+        || !Number.isFinite(p.soilCoverHistory.local) || Math.abs(p.soilCoverHistory.local) > 100)
       || p.materialKg !== (p.resources.mineralsKg || 0)) throw Error('Invalid native terrain custody');
     for (const site of Object.values(result.sites)) if (!site?.cellId
       || !['surface', 'wetland', 'shore', 'waterColumn', 'subsurface'].includes(site.kind)
       || site.wetlandBank != null && (site.kind !== 'surface' || !Foreign.validBank(site.wetlandBank))
       || site.coast != null && (site.kind !== 'shore' || site.cellId !== site.coast.landCellId || !Foreign.validCoast(site.coast))
       || site.mouth != null && (site.kind !== 'surface' || site.cellId !== site.mouth.cellId || !Foreign.validMouth(site.mouth) || site.wetlandBank)
+      || site.soilCoverAttended != null && site.soilCoverAttended !== true
       || !['eastM', 'northM'].every(k => Number.isFinite(site.origin?.[k]))
       || Object.values(site.parcelIds || {}).some(id => !Object.hasOwn(result.parcels, id))) throw Error('Invalid native site binding');
     return result;
@@ -411,18 +419,68 @@
       sections.get(kind)?.push({ c, east, north });
     }
     P.settleRegions(s, at, regions.map(r => r.id)); state.clock = s.clock;
-    for (const r of regions) fundTerrain(state, s, r, sections.get(r.kind), site, at, tile, result, parcelIds);
+    const soilSites = attendedSoilSites(state), attended = soilParcels(state, soilSites);
+    for (const r of regions) fundTerrain(state, s, r, sections.get(r.kind), site, at, tile, result, parcelIds, attended);
     state.sites[site.id] = { ...siteRecord(site, origin), parcelIds: { ...state.sites[site.id]?.parcelIds, ...parcelIds } };
+    if (soilSites.has(site.id) || Object.values(parcelIds).some(id => state.parcels[id].soilCoverHistory)) {
+      state.sites[site.id].soilCoverAttended = true;
+      soilSites.add(site.id);
+    }
     return result;
   }
-  function fundTerrain(state, s, r, cells, site, at, tile, result, parcelIds) {
+  function attendedSoilSites(state) {
+    const entry = cache.get(state);
+    return entry.soilSites ||= new Set(Object.keys(state.sites).filter(id => state.sites[id].soilCoverAttended));
+  }
+  function soilParcels(state, sites) {
+    return new Set([...sites].flatMap(id => Object.values(state.sites[id]?.parcelIds || {}))
+      .filter(id => state.parcels[id]?.soilCoverHistory));
+  }
+  function applyAmbientCover(p, cover, attended) {
+    if (cover === undefined || !coverValue(p.condition?.soilCover)) return;
+    // Old parcels have no reliable departure snapshot. Preserve their
+    // actual local cover and begin measuring from today's regional level.
+    if (!p.soilCoverHistory) {
+      p.soilCoverHistory = { baseline: cover, ambient: cover, local: p.condition.soilCover - cover };
+      return;
+    }
+    if (attended) return;
+    const h = p.soilCoverHistory, ambient = clampCover(h.ambient + cover - h.baseline);
+    if (ambient !== h.ambient) {
+      // Reconcile changes made by actual local actions separately. A cover
+      // reading clipped to bare/dense must not erase the existing scar.
+      const adjustment = p.condition.soilCover - clampCover(h.ambient + h.local);
+      h.local = Math.max(-100, Math.min(100, h.local + adjustment));
+      h.ambient = ambient;
+      p.condition.soilCover = clampCover(ambient + h.local);
+    }
+    h.baseline = cover;
+  }
+  function leaveSoilSites(state, s, at, activeIds) {
+    if (!activeIds || !Number.isFinite(at)) return;
+    const sites = attendedSoilSites(state), leaving = [...sites].filter(id => !activeIds.has(id));
+    if (!leaving.length) return;
+    const stillAttended = soilParcels(state, [...sites].filter(id => activeIds.has(id)));
+    const parcels = [...soilParcels(state, leaving)].filter(id => !stillAttended.has(id)).map(id => state.parcels[id]);
+    const ids = new Set(parcels.map(p => p.sourceRegionId));
+    // A caller servicing an older boundary cannot rewind the source. Use
+    // the earliest settled value available rather than leaving a stale hold.
+    if (ids.size && !P.settleRegions(s, Math.max(at, s.clock), [...ids])) return;
+    const covers = ids.size ? new Map(s.regions.filter(r => ids.has(r.id)).map(r => [r.id, regionalCover(r)])) : null;
+    for (const p of parcels) {
+      const cover = covers.get(p.sourceRegionId);
+      if (cover !== undefined) p.soilCoverHistory.baseline = cover;
+    }
+    for (const id of leaving) { delete state.sites[id].soilCoverAttended; sites.delete(id); }
+  }
+  function fundTerrain(state, s, r, cells, site, at, tile, result, parcelIds, attended) {
     if (!cells.length) return;
     if (r.seasons.some(p => p.wind)) {
       state.windSchedules ||= {};
       state.windSchedules[r.id] ??= { calendar: { epochAt: s.calendar.epochAt, monthDays: [...s.calendar.monthDays] },
         vectors: r.seasons.map(p => copy(p.wind ?? r.wind)) };
     }
-    const area = tile * tile, totals = {};
+    const area = tile * tile, totals = {}, cover = regionalCover(r);
     const reserved = {};
     for (const site of r.ecology?.renewalSites || []) if (site.destroyedAt == null)
       for (const [k, n] of Object.entries(site.materials)) reserved[k] = (reserved[k] || 0) + n;
@@ -434,6 +492,7 @@
         if (site.wetlandBank && r.kind === 'wetland') state.parcels[id].fieldWetland = true;
         if (site.coast && r.kind === 'waterColumn') state.parcels[id].fieldSeawater = true;
         if (site.mouth && r.kind === 'subsurface') { state.parcels[id].fieldBurrowMouth = true; state.parcels[id].floor = false; }
+        applyAmbientCover(state.parcels[id], cover, attended.has(id));
         result[key] = mineralOwner(state.parcels[id], state); continue;
       }
       const resources = {};
@@ -457,6 +516,7 @@
         hardness: 1, supportKg: Math.max(1, (resources.mineralsKg || 0) * 10), ...(r.wind ? { wind: copy(r.wind) } : {}),
         ...(nearbyLee ? { windShelter: copy(lee), windParcelCenter: { eastM: wx, northM: wy } } : {}),
         humidity: r.humidity, temperatureC: r.seasons[P.monthAt(s.calendar, at).season].temperatureC };
+      applyAmbientCover(p, cover, false);
       state.parcels[id] = mineralOwner(p, state); result[key] = p;
     }
     for (const [key, amount] of Object.entries(totals))
@@ -464,6 +524,10 @@
   }
   function bindTerrain(state, siteId) {
     return Object.fromEntries(Object.entries(state.sites[siteId]?.parcelIds || {}).map(([key, id]) => [key, mineralOwner(state.parcels[id], state)]));
+  }
+  function soilCoverAt(state, siteId, cellKey) {
+    const site = state?.sites?.[siteId], p = state?.parcels?.[site?.parcelIds?.[cellKey]];
+    return site?.soilCoverAttended && p?.soilCoverHistory && coverValue(p.condition?.soilCover) ? p.condition.soilCover : undefined;
   }
   function habitat(state, s, site) {
     const entry = cache.get(state);
@@ -534,12 +598,13 @@
       if (!P.returnLocal(s, a.id, at, pos)) throw Error('Original local body could not return to background ownership');
       n.background = true;
     }
+    if (locality) leaveSoilSites(state, s, at, locality.activeSiteIds);
     state.clock = s.clock; return true;
   }
   const ownsLocal = (state, actorId) => {
     const d = cache.get(state)?.account.details[actorId]; return Boolean(d && !d.actor?.nativePopulation?.background);
   };
   const hasLocalActors = state => Object.values(cache.get(state)?.account.details || {}).some(d => d.actor?.nativePopulation && !d.actor.nativePopulation.background);
-  return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, carrion, birth, capacity, diff, apply,
+  return { create, normalize, open, pack, rebind, materialize, roadsideProbe, sync, nearby, terrain, bindTerrain, soilCoverAt, carrion, birth, capacity, diff, apply,
     hasOpen, ready, prepare, advanceBudget, ownsLocal, hasLocalActors, encounteredPopulationIds };
 });

@@ -108918,6 +108918,13 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
     return { id: task.data.instrumentInstanceId, instrumentId: task.data.instrumentId, calibration: confidence.record.calibration, condition: confidence.tool ? Math.round(confidence.tool.current / Math.max(1, confidence.tool.max) * 100) : 0, skillId: task.data.skillId, skillLevel: skillLevel(task.data.skillId), confidenceScore: confidence.score };
   }
 
+  function reconnaissanceSoilCover(cell) {
+    const field = foreignSurveyAtField()?.wilderness;
+    if (!field || scientistRoomId() !== field.roomId || !field.beasts?.materialized
+      || !visitedForeignBeastPatches(field).some(p => ForeignWilderness.contains(p.bounds, cell))) return undefined;
+    return NativeBeastPopulations.soilCoverAt(state.nativeBeastPopulations, field.beasts.siteId, mapCellKey(cell));
+  }
+
   function saveResourceObservation(captured, task, confidence, result, sample = null) {
     const recorded = ResourceSurveys.record(ensureResourceSurveys(), captured, { at: state.clock, score: confidence.score, instrument: resourceSurveyInstrument(task, confidence), sampleId: sample?.id, sampleStackId: sample?.stackId, diagnosticResultId: result.id });
     state.resourceSurveys = recorded.state;
@@ -109500,7 +109507,9 @@ ${handlingMethodInventoryTitle(handlingRisk.method.id)}`;
       const methodId = task.data.resourceMethodId;
       const method = ResourceSurveys.METHODS[methodId];
       const confidence = instrumentDiagnosticConfidence(task);
-      const captured = ResourceSurveys.capture(resourceContextForCell(task.data.targetCell), task.data.targetCell, methodId, state.clock, confidence.score, resourceSurveyInstrument(task, confidence));
+      const cell = task.data.targetCell;
+      const cover = methodId === "reconnaissance" ? reconnaissanceSoilCover(cell) : undefined;
+      const captured = ResourceSurveys.capture(resourceContextForCell(cell), cell, methodId, state.clock, confidence.score, resourceSurveyInstrument(task, confidence), cover);
       if (!captured) { releaseConstructionTaskTools(task, { retain: false }); return false; }
       if (method.sampleMethod) {
         consumeProductionMaterialReservations(task);

@@ -33,6 +33,27 @@ test('repeat measurements and JSON reloads cannot reroll or inflate independent 
   expect(Surveys.record(Surveys.defaultState({ ...ctx, siteId: 'other-parcel' }), first).observation).toBeNull();
 });
 
+test('only local reconnaissance records dated soil-cover bands; no raw condition or regional diagnosis leaks', () => {
+  const ctx = context(), cover = o => o.findings.find(f => f.familyId === 'soilCover');
+  let state = Surveys.defaultState(ctx);
+  for (const [at, n, band] of [[10, 80, 'dense'], [20, 22, 'sparse'], [30, 55, 'patchy']]) {
+    const captured = Surveys.capture(ctx, cell, 'reconnaissance', at, 90, {}, n);
+    const result = Surveys.record(state, captured);
+    expect(cover(result.observation)).toMatchObject({ result: band, label: 'Soil cover' });
+    state = Surveys.normalizeState(JSON.parse(JSON.stringify(result.state)));
+  }
+  const publicNotes = Surveys.publicKnowledge(state);
+  expect(publicNotes.coveredPoints).toBe(1);
+  expect(publicNotes.observations.map(o => [o.sampledAt, cover(o).result])).toEqual([[10, 'dense'], [20, 'sparse'], [30, 'patchy']]);
+  expect(JSON.stringify(publicNotes)).not.toMatch(/"soilCover":|exhausted|unattended|regionalBaseline/);
+  const read = (method, n, quality = 90) => Surveys.assess(Surveys.capture(ctx, cell, method, 0, quality, {}, n), quality)
+    .find(f => f.familyId === 'soilCover');
+  expect(read('surfaceSample', 30)).toBeUndefined();
+  expect(read('reconnaissance', undefined)).toBeUndefined();
+  expect(read('reconnaissance', 101)).toBeUndefined();
+  expect(read('reconnaissance', 30, 5).result).toBe('inconclusive');
+});
+
 test('poor instruments are inconclusive and arcane anomalies do not identify a resource', () => {
   const captured = Surveys.capture(context(), cell, 'arcaneSurvey', 0, 80);
   const finding = Surveys.assess(captured, 80)[0];

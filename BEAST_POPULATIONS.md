@@ -1275,6 +1275,33 @@ Nullmaw in both Canvas and DOM. It also checks reload, withdrawal and return.
 The recorded-entrance fixture makes that contact repeatable; it does not
 measure how often an unspecified ordinary entrance yields a sighting.
 
+#### Soil cover on revisited survey ground
+
+An original dry surface or shore parcel keeps its local condition changes and
+finite terrain inventory. At withdrawal, when no overlapping visit still
+holds the same parcel, it records the region's settled soil-cover baseline.
+On a physical revisit it applies the change since that baseline once. Local
+scars and restoration are tracked separately from that ambient change, even
+if the displayed cover reached zero or full. Existing visits do not apply
+regional changes on every step, and unattended parcels do no per-tile work.
+No resource is refilled, and no other condition channel changes. An older
+parcel with no baseline begins tracking at its next visit without backfill.
+
+Completed foreign-wilderness Resource Reconnaissance can record one cover
+band for the actual visited dry plot: mostly bare, sparse, patchy, or dense.
+Poor instrument confidence can leave the reading inconclusive. Earlier notes
+keep their original date and finding; the reading exposes neither the raw
+regional condition nor the cause of decline, whole-hex exhaustion, or remote
+recovery. This does not expand survey permission or add a sampling method.
+
+The focused parcel check applies measured phases from the prepared Ironroot
+workface: initial cover, decline under actual grazing, and recovery after a
+surviving original travels back and performs paid restoration. Three notes
+refer to the same plot. A separate local scar survives its bare phase and
+reload; overlapping visits and later reads do not reapply the change or
+reacquire the original material. This is a terrain handoff and observation
+check, not a claim that the entire generated hex follows that prepared trace.
+
 ### Wetland banks on ordinary foreign surveys
 
 A mapped wetland can supply a dry-bank approach to the existing on-foot

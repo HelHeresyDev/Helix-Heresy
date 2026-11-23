@@ -1,6 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const L = require('../world-run-library'), N = require('../beast-native-populations'), P = require('../beast-populations');
 const F = require('../beast-regional-foodweb'), B = require('../beast-bodies'), S = require('../beast-habitat-sources');
+const Surveys = require('../resource-surveys');
 const Carrion = require('../wildlife-carcasses');
 const Road = require('../roadside-stops');
 const Supply = require('../municipal-supply-threats');
@@ -385,6 +386,7 @@ test('terrain custody is finite, shared across overlapping visits and never turn
   const terrain = N.terrain(state, record, map, site, cells, 0), Habitat = require('../beast-habitat');
   const first = terrain['128,128,6']; Habitat.patch(first, cells[0], 1);
   assert.equal(first.resources.waterL || 0, 0); assert.ok(first.resources.seawaterL > 0);
+  assert.equal(N.soilCoverAt(state, site.id, '128,128,6'), undefined);
   for (const k of Object.keys(before).filter(k => !k.includes(':'))) {
     const moved = Object.values(terrain).reduce((n, p) => n + (p.resources[k] || 0), 0);
     assert.ok(Math.abs(before[k] - r.stocks[k] - moved) <= Math.max(1e-7, before[k] * 1e-12), k);
@@ -406,6 +408,97 @@ test('terrain custody is finite, shared across overlapping visits and never turn
   assert.throws(() => N.terrain(saved, record, map, site, cells, -1), /current time/);
   assert.throws(() => N.terrain(saved, record, map, site, cells, 0, 0), /tile area/);
   assert.equal(JSON.stringify(saved), unchanged);
+});
+test('reconnaissance on the same native parcel records decline and paid recovery without refills or lost scars', () => {
+  const { source } = require('../scripts/benchmark-beast-regional-ecology');
+  const ecology = P.create(source(), { worldId: 'maintenance-trace', runId: 'test' });
+  for (const g of ecology.groups) for (const c of g.cohorts) c.deathThreshold = 1e12;
+  P.advance(ecology, 10 * P.DAY, true, true);
+  const initial = ecology.regions[0].condition.soilCover;
+  P.kill(ecology, 'root', 'root-originals', 0, ecology.clock, 'workface-defeated');
+  P.advance(ecology, 200 * P.DAY, true, true);
+  const depleted = ecology.regions[0].condition.soilCover;
+  assert.ok(ecology.regions[0].exhausted && depleted < 30);
+  ecology.groups[2].intention = { destination: 'field', chosenAt: ecology.clock, departAt: ecology.clock + 1 };
+  P.removeStock(ecology, 'reserve', 'waterL', 0, ecology.clock, 'workface-return');
+  P.advance(ecology, 230 * P.DAY, true, true);
+  const restored = ecology.regions[0].condition.soilCover;
+  assert.ok(!ecology.regions[0].exhausted && restored > depleted);
+
+  // Feed the measured phases from the prepared ecology above to the original
+  // terrain/attendance/save path. This is not a generated-world balance test.
+  const { map, binding } = original(), record = map.beastHabitatSources;
+  let state = N.create(record, binding), s = N.open(state, record, map);
+  const { site, r } = context(s, 'beast:ironroot-colossus');
+  const overlap = { ...site, id: 'overlapping-plot' }, cell = { x: 128, y: 128, z: 6 }, key = '128,128,6';
+  const survey = { worldId: binding.worldId, siteId: site.id, strategicCellId: r.cellId, seed: 'same-plot',
+    truth: { environmentalDifficultyPermille: 0 } };
+  let journal = Surveys.defaultState(survey);
+  const recordCover = () => {
+    const captured = Surveys.capture(survey, cell, 'reconnaissance', state.clock, 90, {}, N.soilCoverAt(state, site.id, key));
+    const result = Surveys.record(journal, captured); journal = result.state;
+    return result.observation;
+  };
+  const setCover = (at, n) => {
+    assert.ok(P.settleRegions(s, at, [r.id]));
+    const here = s.regions.find(region => region.id === r.id);
+    here.condition.soilCover = n;
+    const history = here.ecologicalAccount.viabilityHistory;
+    history.minimumCondition.soilCover = Math.min(history.minimumCondition.soilCover, n);
+    if (n < here.ecology.viabilityFloors.soilCover) history.floorBreaches.soilCover ||= { firstAt: at, belowDays: 0 };
+  };
+  const visit = (at, place = site) => N.terrain(state, record, map, place, [cell], at)[key];
+  const presence = (at, ...ids) => assert.ok(N.sync(state, record, map, [], at, true, { activeSiteIds: new Set(ids) }));
+  setCover(0, initial);
+  const first = visit(0);
+  first.condition.soilCover -= 30; // A separate local scar.
+  first.resources.mineralsKg *= .8; // An independent local withdrawal of finite matter.
+  const localBefore = copy(first.resources), opening = recordCover();
+  assert.equal(opening.findings.at(-1).result, 'dense');
+  setCover(1, initial - 5);
+  assert.equal(visit(1, overlap), first);
+  assert.equal(first.condition.soilCover, initial - 30, 'overlapping attendance does not apply regional changes');
+  presence(1, overlap.id);
+  assert.equal(first.soilCoverHistory.baseline, initial);
+  setCover(2, initial); presence(1); // An older attendance tick cannot rewind the settled baseline.
+  assert.equal(N.soilCoverAt(state, site.id, key), undefined, 'no new sighting while absent');
+  assert.equal(first.soilCoverHistory.baseline, initial);
+
+  setCover(3, depleted);
+  const after = visit(3), declined = recordCover();
+  assert.equal(after, first);
+  assert.equal(after.condition.soilCover, 0);
+  assert.equal(after.soilCoverHistory.local, -30);
+  assert.equal(declined.findings.at(-1).result, 'mostlyBare');
+  assert.deepEqual(after.resources, localBefore);
+  presence(3);
+  N.pack(state, record, map);
+  const invalid = copy(state); Object.values(invalid.parcels)[0].soilCoverHistory.baseline = 101;
+  assert.throws(() => N.normalize(invalid, binding), /terrain custody/);
+  state = N.normalize(copy(state), binding); s = N.open(state, record, map);
+  journal = Surveys.normalizeState(copy(journal));
+  assert.equal(N.soilCoverAt(state, site.id, key), undefined);
+  setCover(4, restored);
+  const recovery = visit(4), latest = recordCover();
+  assert.equal(recovery.condition.soilCover, restored - 30);
+  assert.ok(['patchy', 'dense'].includes(latest.findings.at(-1).result));
+  assert.deepEqual(recovery.resources, localBefore);
+  const currentStocks = copy(s.regions.find(region => region.id === r.id).stocks);
+  assert.equal(visit(4, overlap).condition.soilCover, restored - 30);
+  assert.deepEqual(s.regions.find(region => region.id === r.id).stocks, currentStocks);
+  assert.deepEqual(journal.observations.slice(0, 2), [opening, declined]);
+  assert.deepEqual(journal.observations.map(o => o.sampledAt), [0, 3, 4]);
+  assert.ok(journal.observations.every(o => JSON.stringify(o.cell) === JSON.stringify(cell)));
+  assert.ok(!JSON.stringify(Surveys.publicKnowledge(journal)).includes('soilCoverHistory'));
+
+  // A pre-feature parcel keeps its stored state and starts from today's
+  // regional level; it receives no fabricated historical loss or recovery.
+  N.pack(state, record, map);
+  const old = copy(state);
+  for (const site of Object.values(old.sites)) delete site.soilCoverAttended;
+  const legacy = Object.values(old.parcels)[0]; delete legacy.soilCoverHistory; legacy.condition.soilCover = 41;
+  state = N.normalize(old, binding);
+  assert.equal(visit(4).condition.soilCover, 41);
 });
 test('native terrain keeps the generated lee frame and seasonal air after reload', () => {
   const { map, binding } = original(), record = map.beastHabitatSources, state = N.create(record, binding);

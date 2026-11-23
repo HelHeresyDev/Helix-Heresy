@@ -312,6 +312,15 @@ test('Canvas and DOM: ordinary foreign survey claims an original full-size beast
   expect(frame).toEqual({ eastM: -42543.346, northM: -149826.258 });
   const rootId = w.site.destination.id;
   expect(w.site.beasts.actors).toHaveLength(0); expect(w.site.extension).toBeUndefined();
+  const plot = w.cell;
+  expect(await act(page, 'survey', { method: 'reconnaissance', cell: plot })).toBe(true);
+  await completeWalk();
+  const localCoverNote = async () => (await snap(page)).surveys.observations.find(o => o.siteId === w.site.context.siteId
+    && o.methodId === 'reconnaissance' && o.findings.some(f => f.familyId === 'soilCover'));
+  const coverNote = await localCoverNote();
+  expect(coverNote).toMatchObject({ cell: plot, coverage: 'local sampling point; strategic cell remains unsurveyed' });
+  expect(coverNote.findings.find(f => f.familyId === 'soilCover')).toMatchObject({ label: 'Soil cover', result: 'dense' });
+  expect(coverNote).not.toHaveProperty('soilCover');
   expect(await act(page, 'walkLocalEdge', { direction: 'east' })).toBe(true); await completeWalk();
   expect((await wild(page)).knowledge.sightings).toHaveLength(0);
   expect(await act(page, 'crossLocalConnection', { direction: 'east' })).toBe(true); await completeWalk();
@@ -334,6 +343,7 @@ test('Canvas and DOM: ordinary foreign survey claims an original full-size beast
   }
   await reload(page); w = await wild(page);
   expect(w.site.beasts.actors).toEqual([a]);
+  expect(await localCoverNote()).toEqual(coverNote);
   expect(w.site.discovery.baseline.populationFrame).toEqual(frame);
   expect(w.cell).toEqual(w.site.extension.entry); // Already at its west seam.
   expect(await act(page, 'crossLocalConnection', { direction: 'west' })).toBe(true); await completeWalk();
@@ -343,6 +353,7 @@ test('Canvas and DOM: ordinary foreign survey claims an original full-size beast
   expect(await act(page, 'enterWilderness')).toBe(true); await completeWalk();
   w = await wild(page); expect(w.site.discovery.baseline.populationFrame).toEqual(frame);
   expect(w.site.extension.materialized).toBe(true);
+  expect(await localCoverNote()).toEqual(coverNote);
   expect(w.site.beasts.actors.every(b => b.life.originalMemberId === a.life.originalMemberId)).toBe(true);
   expect(w.site.beasts.actors.length).toBeLessThanOrEqual(1);
   expect(errors).toEqual([]);

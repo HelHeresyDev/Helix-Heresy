@@ -14,6 +14,7 @@
   });
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
+  const validCover = value => Number.isFinite(value) && value >= 0 && value <= 100;
   const cellKey = (cell) => `${cell.x},${cell.y},${cell.z}`;
   function noise(seed) { let hash = 2166136261; for (const c of String(seed)) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619); return (hash >>> 0) / 0xffffffff; }
   function defaultState(context = null) { return { context: context ? clone(context) : null, sites: context ? { [context.siteId]: clone(context) } : {}, observations: [], nextObservationNumber: 1 }; }
@@ -25,7 +26,7 @@
     return state;
   }
   // Simulation-only local indicators derived from strategic opportunity; not veins or reserves.
-  function capture(context, cell, methodId, at, quality = 50, instrument = {}) {
+  function capture(context, cell, methodId, at, quality = 50, instrument = {}, soilCover) {
     const method = METHODS[methodId];
     if (!context?.truth || !method || !cell) return null;
     const key = `${context.seed}:${context.siteId}:${cellKey(cell)}:${methodId}`;
@@ -38,22 +39,32 @@
       const access = family === "arcaneIndicators" ? 1 : 0.25 + clamp(truth.surfaceAccessibilityPermille, 0, 1000) / 1334;
       signals[family] = clamp(potential * depthFactor * access * (0.6 + noise(`${key}:${family}:local`) * 0.65), 0, 1000);
     }
-    return { siteId: context.siteId, strategicCellId: context.strategicCellId, worldId: context.worldId, cell: clone(cell), methodId, sampledAt: at, quality: clamp(quality, 0, 100), instrument: clone(instrument), evidenceKey: key, signals, interference: clamp(context.truth.environmentalDifficultyPermille, 0, 1000) / 100 };
+    return { siteId: context.siteId, strategicCellId: context.strategicCellId, worldId: context.worldId, cell: clone(cell), methodId, sampledAt: at, quality: clamp(quality, 0, 100), instrument: clone(instrument), evidenceKey: key, signals, interference: clamp(context.truth.environmentalDifficultyPermille, 0, 1000) / 100,
+      ...(methodId === "reconnaissance" && validCover(soilCover) ? { soilCover } : {}) };
   }
   function assess(captured, score) {
     const method = METHODS[captured?.methodId];
     if (!method) return [];
     const effective = clamp(Math.min(score, captured.quality) - captured.interference, 0, 100);
-    return method.families.map((familyId) => {
+    const confidence = effective >= 75 ? "strong" : effective >= 48 ? "moderate" : "low";
+    const findings = method.families.map((familyId) => {
       const signal = captured.signals[familyId] || 0;
       // Fixed place/method ambiguity prevents repeat-order or reload fishing.
       const ambiguous = noise(`${captured.evidenceKey}:${familyId}:measurement`) * 180 - 90;
       const detected = signal + ambiguous > 290 - effective * 1.8;
       const result = effective < 28 ? "inconclusive" : detected ? "indicatorsDetected" : "notDetected";
       return { familyId, label: FAMILIES[familyId] || "Arcane mineral indicators", result,
-        confidence: effective >= 75 ? "strong" : effective >= 48 ? "moderate" : "low",
+        confidence,
         summary: result === "inconclusive" ? "Reading inconclusive" : result === "notDetected" ? "Not detected by this method; absence is not established" : familyId === "arcaneIndicators" ? "Magical anomaly detected; source and resource identity unresolved" : "Promising local indicators; deposit and recoverable yield unconfirmed" };
     });
+    if (captured.methodId === "reconnaissance" && validCover(captured.soilCover)) {
+      const n = captured.soilCover;
+      const [result, summary] = effective < 28 ? ["inconclusive", "Cover reading inconclusive"]
+        : n < 15 ? ["mostlyBare", "Mostly bare ground"] : n < 35 ? ["sparse", "Sparse cover"]
+          : n < 65 ? ["patchy", "Patchy cover"] : ["dense", "Dense cover"];
+      findings.push({ familyId: "soilCover", label: "Soil cover", result, confidence, summary });
+    }
+    return findings;
   }
   function record(candidate, captured, options = {}) {
     const state = normalizeState(candidate);
